@@ -1,0 +1,21 @@
+{
+  "torch": "2.8.0+cu128",
+  "cuda": "12.8",
+  "gpu": "NVIDIA GeForce RTX 3060",
+  "seed": 42,
+  "steps": 20,
+  "scheduler": "DDIM",
+  "eta": 0.0,
+  "guidance_scale": 7.5,
+  "prompt": "a single sitting cat, full body, white paper background",
+  "unconditional": false,
+  "resolution": [
+    512,
+    512
+  ],
+  "generation_seconds": 3.0,
+  "peak_allocated_vram_gib": 3.18,
+  "nsfw_content_detected": [
+    false
+  ]
+}
