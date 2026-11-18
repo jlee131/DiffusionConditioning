@@ -1,0 +1,104 @@
+:root {
+  --bg: #fbfaf7;
+  --card: #ffffff;
+  --ink: #1d2430;
+  --muted: #5d6675;
+  --line: #e4e1da;
+  --accent: #c2255c;     /* guidance */
+  --photo: #d07a2a;      /* photo cats */
+  --pencil: #4b5d82;     /* pencil cats */
+  --base: #9aa1ab;       /* base score */
+  --total: #1d2430;
+  --seg-on: #1d2430;
+  --seg-on-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171c; --card: #1c2027; --ink: #e8eaee; --muted: #a3abb8; --line: #2c323c;
+    --accent: #f06595; --photo: #f0a050; --pencil: #8ea4d2; --base: #6f7783; --total: #e8eaee;
+    --seg-on: #e8eaee; --seg-on-ink: #14171c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171c; --card: #1c2027; --ink: #e8eaee; --muted: #a3abb8; --line: #2c323c;
+  --accent: #f06595; --photo: #f0a050; --pencil: #8ea4d2; --base: #6f7783; --total: #e8eaee;
+  --seg-on: #e8eaee; --seg-on-ink: #14171c;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+h1, h2, h3 { line-height: 1.2; }
+h1 { font-size: clamp(2rem, 5vw, 3.2rem); margin: .2em 0 .3em; letter-spacing: -0.02em; }
+h2 { font-size: 1.6rem; margin-top: 2.5rem; }
+h3 { font-size: 1.1rem; margin-top: 0; }
+p { max-width: 75ch; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .88em; }
+
+.hero { border-bottom: 1px solid var(--line); padding: 48px 0 24px; }
+.kicker { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; margin: 0; }
+.lede { font-size: 1.12rem; color: var(--muted); }
+.toc { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; }
+.toc a { color: var(--ink); text-decoration: none; border-bottom: 2px solid var(--line); padding-bottom: 2px; }
+.toc a:hover { border-color: var(--accent); }
+.num {
+  display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%;
+  background: var(--ink); color: var(--bg); font-size: .8em; margin-right: .4em; vertical-align: .1em;
+}
+.chip { padding: 1px 8px; border-radius: 99px; font-size: .9em; color: #fff; white-space: nowrap; }
+.chip.photo { background: var(--photo); }
+.chip.pencil { background: var(--pencil); }
+
+/* ---- toy layout ---- */
+.toy-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; margin-top: 16px; }
+.toy-stage { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+#toy-canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 8px; cursor: crosshair; touch-action: none; }
+.timebar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.timebar input { flex: 1; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .82rem; color: var(--muted); margin-top: 8px; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
+.sw.base { background: var(--base); } .sw.guide { background: var(--accent); } .sw.total { background: var(--total); }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.photo { background: var(--photo); } .dot.pencil { background: var(--pencil); }
+.ring { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1.5px solid var(--muted); }
+
+.toy-panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.ctl label { display: block; font-size: .88rem; font-weight: 600; margin-bottom: 4px; }
+.ctl label.sub { font-weight: 400; color: var(--muted); margin-top: 8px; }
+.ctl input[type=range] { width: 100%; }
+.ctl select { width: 100%; padding: 5px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.checks { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
+.checks label { font-weight: 400; display: flex; gap: 6px; align-items: center; margin: 0; }
+.checks select { grid-column: 1 / -1; margin-top: 4px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; border: 0; background: transparent; color: var(--ink); padding: 6px 4px; cursor: pointer; font: inherit; font-size: .88rem; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--seg-on); color: var(--seg-on-ink); }
+.btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; width: 36px; height: 32px; cursor: pointer; }
+.hint { font-size: .85rem; color: var(--accent); margin: -4px 0 0; }
+.readout { font-size: .8rem; border-top: 1px solid var(--line); padding-top: 10px; }
+.readout table { width: 100%; border-collapse: collapse; }
+.readout td { padding: 1px 0; }
+.readout td:last-child { text-align: right; font-family: ui-monospace, Consolas, monospace; }
+.ro-title { color: var(--muted); }
+.badge { font-size: .82rem; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px dashed var(--line); }
+.badge b { font-family: ui-monospace, Consolas, monospace; }
+
+.toy-below { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 20px; margin-top: 20px; }
+.chart-card, .math-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 0; }
+#toy-chart { width: 100%; aspect-ratio: 16 / 10; display: block; }
+figcaption { font-size: .85rem; color: var(--muted); margin-top: 6px; }
+.math-card p { font-size: .95rem; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+
+.placeholder { color: var(--muted); padding-bottom: 8px; }
+.foot { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); margin-top: 48px; padding-top: 16px; padding-bottom: 32px; }
+
+@media (max-width: 900px) {
+  .toy-grid, .toy-below { grid-template-columns: 1fr; }
+}

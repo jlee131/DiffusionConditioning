@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steering Diffusion</title>
+  <meta name="description" content="Interactive explanation of classifier guidance, classifier-free guidance, and training-free guidance in diffusion models.">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+          onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]})"></script>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <p class="kicker">Mathematics of Diffusion Models · Final Project</p>
+    <h1>Steering Diffusion</h1>
+    <p class="lede">How classifier guidance (CG), classifier-free guidance (CFG), and training-free guidance (TFG)
+      bend the generation path. We start from a toy problem where every quantity is exact, then look at
+      Stable Diffusion, then you draw.</p>
+    <nav class="toc">
+      <a href="#toy">1 · Toy 2D</a>
+      <a href="#sd">2 · Stable Diffusion</a>
+      <a href="#draw">3 · Draw an Outline</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<!-- ===================================================================== -->
+<section id="toy" class="wrap">
+  <h2><span class="num">1</span> Guidance as a vector field</h2>
+  <p>The data is a mixture of six Gaussians: <span class="chip photo">photo cats</span>,
+    <span class="chip pencil">pencil cats</span>, and one ambiguous blob. Noising a Gaussian mixture gives another
+    Gaussian mixture, so every field below is <em>exact</em>. Hover a particle to trace it, or click to pin it and press play.</p>
+
+  <div class="toy-grid">
+    <div class="toy-stage">
+      <canvas id="toy-canvas" aria-label="Toy 2D diffusion visualization"></canvas>
+      <div class="timebar">
+        <button id="toy-play" class="btn" aria-label="Play">▶</button>
+        <input id="toy-time" type="range" min="0" max="80" value="0" step="1" aria-label="Sampling step">
+        <span id="toy-tlabel" class="mono">t = 1.00</span>
+      </div>
+      <div class="legend">
+        <span><i class="sw base"></i>base score $\nabla\log p_t(x)$</span>
+        <span><i class="sw guide"></i>guidance $s\,g_t$</span>
+        <span><i class="sw total"></i>total</span>
+        <span><i class="dot photo"></i>ends as photo</span>
+        <span><i class="dot pencil"></i>ends as pencil</span>
+        <span><i class="ring"></i>clean prediction $\hat x_0$</span>
+      </div>
+    </div>
+
+    <aside class="toy-panel">
+      <div class="ctl">
+        <label>Method</label>
+        <div class="seg" id="toy-method">
+          <button data-v="none" class="on">None</button>
+          <button data-v="cg">CG</button>
+          <button data-v="cfg">CFG</button>
+          <button data-v="tfg">TFG</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <label for="toy-scale">Guidance scale <span class="mono" id="toy-scale-v">s = 1.00</span></label>
+        <input id="toy-scale" type="range" min="0" max="5" step="0.05" value="1">
+      </div>
+      <div class="ctl">
+        <label for="toy-start">Guidance on for $t \le$ <span class="mono" id="toy-start-v">1.00</span></label>
+        <input id="toy-start" type="range" min="0" max="1" step="0.01" value="1">
+      </div>
+      <div class="ctl" id="toy-model-ctl">
+        <label>Model</label>
+        <div class="seg" id="toy-model">
+          <button data-v="oracle" class="on">Oracle</button>
+          <button data-v="estimated">Estimated</button>
+        </div>
+        <label for="toy-kappa" class="sub">estimation error <span class="mono" id="toy-kappa-v">κ = 0.50</span></label>
+        <input id="toy-kappa" type="range" min="0" max="1" step="0.01" value="0.5" disabled>
+      </div>
+      <p class="hint" id="toy-tfg-hint" hidden>Click to move the TFG target ✕. Shift+click a particle to pin it.</p>
+
+      <div class="ctl">
+        <label for="toy-bg">Background</label>
+        <select id="toy-bg">
+          <option value="density">density pₜ(x)</option>
+          <option value="target">guided target density</option>
+          <option value="classifier">classifier pₜ(pencil | x)</option>
+          <option value="diff">|CG − CFG| field difference</option>
+        </select>
+      </div>
+      <div class="ctl checks">
+        <label><input type="checkbox" id="toy-ar-base" checked> base score</label>
+        <label><input type="checkbox" id="toy-ar-guide" checked> guidance</label>
+        <label><input type="checkbox" id="toy-ar-total"> total</label>
+        <label><input type="checkbox" id="toy-particles" checked> particles</label>
+        <label><input type="checkbox" id="toy-x0" checked> $\hat x_0$</label>
+        <label><input type="checkbox" id="toy-x0path"> $\hat x_0$ path</label>
+        <select id="toy-x0kind" aria-label="Which clean prediction">
+          <option value="guided">show guided x̂₀</option>
+          <option value="base">show base x̂₀</option>
+        </select>
+      </div>
+
+      <div class="readout" id="toy-readout">
+        <div class="ro-title">Hover the canvas</div>
+      </div>
+      <div class="badge" id="toy-equal"></div>
+    </aside>
+  </div>
+
+  <div class="toy-below">
+    <figure class="chart-card">
+      <canvas id="toy-chart" aria-label="Fraction of samples ending as pencil versus guidance scale"></canvas>
+      <figcaption id="toy-chart-cap">Fraction of particles that end as pencil vs. guidance scale $s$.</figcaption>
+    </figure>
+    <div class="math-card">
+      <h3>What you are seeing</h3>
+      $$\nabla\log p_t(x\mid c)=\underbrace{\nabla\log p_t(x)}_{\text{base}}+\underbrace{\nabla\log p_t(c\mid x)}_{\text{guidance }g_t}$$
+      <p>Particles follow $\nabla\log p_t(x)+s\,g_t$, which targets $p(x)\,p(c\mid x)^s$.</p>
+      <p><b>CG</b> differentiates a classifier, $g_t=\nabla\log p_t(c\mid x)$. <b>CFG</b> subtracts two scores,
+        $g_t=\nabla\log p_t(x\mid c)-\nabla\log p_t(x)$. With exact models they give the same field. Switch to
+        <em>Estimated</em> to see them diverge.</p>
+      <p><b>TFG</b> applies a loss to the clean prediction $\hat x_0=\mathbb E[x_0\mid x_t]$ and differentiates through it:
+        $$g_t=-\Big(\tfrac{\partial\hat x_0}{\partial x_t}\Big)^{\!\top}\nabla\ell(\hat x_0),\quad
+          \tfrac{\partial\hat x_0}{\partial x_t}=\tfrac{\alpha_t}{\sigma_t^2}\mathrm{Cov}[x_0\mid x_t].$$</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section id="sd" class="wrap placeholder">
+  <h2><span class="num">2</span> Stable Diffusion: CG vs CFG vs TFG</h2>
+  <p>Coming soon: precomputed SD 1.5 runs from identical noise, with synchronized clean predictions.</p>
+</section>
+
+<section id="draw" class="wrap placeholder">
+  <h2><span class="num">3</span> Draw an outline</h2>
+  <p>Coming soon: a sketch diffusion model running in your browser, guided by your outline.</p>
+</section>
+</main>
+
+<footer class="wrap foot">Based on <em>The Principles of Diffusion Models</em> (v3), Chapter 8.</footer>
+
+<script type="module" src="js/toy2d/toy2d.js"></script>
+</body>
+</html>
