@@ -1,11 +1,13 @@
 ---
 name: ui-style-preferences
-description: The user's preferred visual style for web UIs (survey pages, forms, small web apps, interactive explainers) — English headings, a clear typographic hierarchy, outline-only navigation buttons, and a sky/peach/coral palette with a dark-mode variant the user prefers. Use when building, restyling, or tweaking any web page or front-end for this user, including bilingual (English/Korean) pages.
+description: The user's preferred visual style for web UIs (survey pages, forms, small web apps, interactive explainers) — English headings, a clear typographic hierarchy, outline-only navigation buttons, a sky/peach/coral palette with light mode by default plus a dark variant, and a calm, airy explainer layout. Use when building, restyling, or tweaking any web page or front-end for this user, including bilingual (English/Korean) pages.
 ---
 
 # UI style preferences
 
 Preferences collected while building a bilingual image-rating survey (2026-11) and an interactive diffusion-model explainer (2026-11). Apply them by default; the user's explicit request in the current task wins.
+
+The diffusion explainer ("Steering Diffusion", final version 2026-11-19) is the user's favorite result so far ("역대급 마음에 든다"). For a new explainer or interactive page, start from §7, which describes that site.
 
 ## 1. Language
 
@@ -61,11 +63,12 @@ One role per hue so no color dominates. Text is navy slate on a near-white page.
 |---|---|---|
 | sky | `#75BDE0` | primary accent, active `?` icon |
 | deep sky | `#2A7DAA` | keywords, question numbers, focus ring |
-| deepened sky | `#3E9ED3` | selected rating cell (≥3:1 on white) |
+| deepened sky | `#3E9ED3` | slider/checkbox accent; selected rating cell on the survey (≥3:1 on white) |
+| pale sky | `#A9D8F0` | selected segment-button fill on the explainer, with navy text (`#3E9ED3` behind navy text was too dark to read) |
 | light sky | `#E3F2FA` | hovered cell, soft highlights |
 | peach | `#F8BC9B` | outline of Start/Next/Submit |
 | light peach | `#FDE8DC` | position badges, outline-button hover; badge text `#9A4A2A` |
-| coral | `#F89B9B` | reference ("Input") card header/border, progress fill, warning border; header text `#6B2626` |
+| coral | `#F89B9B` | reference ("Input") card header/border, progress/loading fill, warning border; header text `#6B2626` |
 | navy slate | `#3A4659` | body text; navy `#23384F` for text on sky (white on sky is too faint) |
 | muted | `#677184` | secondary text |
 | page / surface | `#F8F9FB` / `#FFFFFF` | background / cards |
@@ -86,11 +89,14 @@ Pastel tokens are too faint for small marks (dots, 2px chart lines), so data col
 | neutral / baseline series | `#8A93A3` | `#93A0B0` |
 
 - Peach next to coral is hard to tell apart in charts, so a third data series uses **lavender**. Lavender is the one approved hue outside the sky/peach/coral set; it is still not sand or yellow.
+- Keep a method's color the same everywhere it appears (buttons, chart lines, legends, card accents).
+- Density / heatmap backgrounds: a soft sky tint (`#7CC3E6` fading to the card color) in light mode, not gray ("gray isn't pretty"); in dark mode a pale ink tint (`#DCE3EB`) on navy.
+- Contour lines: the same hue as the arrows they explain, thickening with the level (e.g. 0.25 / 0.5 / 0.75 thin → thick) instead of using different colors.
 - Canvas code that parses colors needs hex values in the tokens, not `rgb()` or named colors.
 
-## 4b. Dark mode (preferred: "darker looks cleaner")
+## 4b. Light default, dark variant
 
-Offer dark mode for every page. Deep navy surfaces; the same three hues are lifted for contrast rather than replaced.
+**Light mode is the default** (decided on the explainer: "light mode turned out better than expected"). Still offer a dark mode on every page; the user likes it ("darker looks cleaner") but as an option, not the first view. Deep navy surfaces; the same three hues are lifted for contrast rather than replaced.
 
 | Token (role) | Light | Dark |
 |---|---|---|
@@ -99,14 +105,15 @@ Offer dark mode for every page. Deep navy surfaces; the same three hues are lift
 | muted text / mobile help text | `#677184` / `#8A93A3` | `#93A0B0` / `#7F8C9C` |
 | borders / control borders | `#E8EAEE` / `#D9DEE5` | `#233140` / `#2F4052` |
 | keywords, focus ring (deep sky) | `#2A7DAA` | `#8CCDEE` |
-| selected segment fill / its text | `#3E9ED3` / `#23384F` | `#75BDE0` / `#0E141B` |
+| selected segment fill / its text | `#A9D8F0` / `#23384F` | `#75BDE0` / `#0E141B` |
 | hover tint (light sky) | `#E3F2FA` | `#1A3042` |
 | badge bg / badge text (peach) | `#FDE8DC` / `#9A4A2A` | `#3A2A22` / `#F8BC9B` |
 | reference header bg / text (coral) | `#F89B9B` / `#6B2626` | `#3B2326` / `#FFC2C2`, coral `#F89B9B` border |
 | card shadow | `0 1px 2px rgba(35,56,79,.04)` | none |
 
 - In dark mode, solid pastel fills become a **dark tint of the hue plus a light text in that hue** (e.g. the coral reference header, peach badges). Only the selected segment keeps a bright fill (sky with dark text).
-- Mechanism: the light tokens live on `:root`; the dark tokens go under `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-theme="light"])`, and again under `:root[data-theme="dark"]`. A small pill toggle (`☾ Dark` / `☀ Light`) at the top right sets `data-theme`, remembers the choice in `localStorage` (wrapped in try/catch), and accepts a `?theme=dark|light` URL override. Canvas drawings must redraw when the theme changes (listen for a custom `themechange` event as well as the media query).
+- Mechanism: the light tokens live on `:root`; the dark tokens go under `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-theme="light"])`, and again under `:root[data-theme="dark"]`. A head script sets `data-theme` before first paint: `?theme=dark|light`, else the choice saved in `localStorage` (wrapped in try/catch), else `light`; `?theme=system` leaves it unset so the OS setting applies. A small pill toggle (`☾ Dark` / `☀ Light`) at the top right flips and saves it. Canvas drawings must redraw when the theme changes (listen for a custom `themechange` event as well as the media query) and after web fonts load.
+- Theme-dependent cursors: the system crosshair can turn white on a light canvas (Windows draws it inverted). Use a custom SVG crosshair token: a dark line with a light halo in light mode, the reverse in dark mode.
 - Never hard-code `#fff` or other light colors in component rules; use the role tokens so both modes follow.
 
 ## 5. Layout
@@ -114,6 +121,7 @@ Offer dark mode for every page. Deep navy surfaces; the same three hues are lift
 - Comparison grids: four cards per row on desktop; on mobile, three per row so the reference plus two candidates fit one screen width. Exception: with exactly four large image cards (reference + three), use 2 × 2 on mobile so no card is left alone on a row.
 - The reference item comes first and looks different (coral header); candidates get neutral cards with peach letter badges.
 - Keep desktop and mobile rules separate (`@media (max-width: 760px)`), and when changing one, say which one changed and whether the other is affected.
+- **No horizontal page scroll on phones.** Single-column grids use `grid-template-columns: minmax(0, 1fr)` (a plain `1fr` grows to the widest equation or canvas), cards get `min-width: 0`, and wide equations scroll inside their own card. Measure at 375–390px width before reporting.
 
 ## 6. Working style for UI tweaks
 
@@ -122,3 +130,33 @@ Offer dark mode for every page. Deep navy surfaces; the same three hues are lift
 - When trying a new look on an existing page, keep the current design intact and add the new one as an override stylesheet behind a URL switch (e.g. `?style=sky`), so the user can compare both before choosing.
 - Point out side effects the user would notice (e.g. a label now truncates, mobile text ends up larger than desktop) and offer a one-line fix rather than applying it unasked.
 - Remind the user when a running server must be restarted for config changes to appear.
+- After a deploy, tell the user to check in a private window: static hosts cache JS (GitHub Pages: 10 min), and modules imported by other modules can survive Ctrl+F5.
+
+## 7. Interactive explainer pattern (the favorite site)
+
+Reference implementation: `site/` of the diffusion-guidance project (`theme-sky.css` on top of `main.css`).
+
+**Type and spacing**
+- Font: **Source Sans 3**, weights 400 and 600 only (Light 300 was tried and dropped). Canvas text uses the same font.
+- Explainer scale (desktop / mobile, px): h1 52 / 40 (600, margin 88 above, 54 below); section h2 34 / 26 (600) with a round numbered badge (pale sky circle, deep-sky number); lead 17 / 18 muted; body 16; captions 14 / 13 muted; chart titles 17 (600).
+- Airy rhythm: generous hero padding, and sections separated by a thin divider line with 88px above and below (56px on mobile).
+- Text column max ~830px; cards and grids may be wider (max page 1180px).
+
+**Structure of each section**
+- Heading → one short lead paragraph → the interactive stage (canvas card, about 2/3 width) beside a control panel card (~320px) → charts and an equation card underneath.
+- Each chart has a short title above it (e.g. "Guidance strength") and a muted caption below.
+- Control panel: segmented buttons for discrete choices, labelled sliders showing the value in monospace (`s = 1.50`), and **folds** (`▸ Display settings`, `▸ Field values`, `▸ Advanced: …`) for anything a first-time reader does not need. Keep the default view minimal.
+- Legends show only what is currently drawn; turning a layer off hides its legend entry too.
+- Defaults start from the plain, unguided state (method None, time 0) so the reader turns things on step by step.
+
+**Controls and feedback**
+- Icon buttons for tool actions (↶ undo, ⟳ clear) as inline SVG with `aria-label`, not text buttons.
+- Long work (model download, warm-up) gets a thin progress bar with a short status line; the bar is coral so it is not mistaken for a slider.
+- Final status messages are one short line ("Done in 7.2 s · scrub the slider to replay"), not paragraphs.
+- Result cards are left-aligned (`auto-fill`, `justify-content: start`), not centered.
+- A drawing pad: the card is exactly as wide as the pad, with a visible dashed border that darkens on hover, plus the custom crosshair above.
+- An example image next to the intro ("Made on this page.") shows what the tool can produce.
+
+**Tech choices that kept it clean**
+- Plain HTML + ES modules, no build step; pinned CDN libraries (KaTeX, TF.js); all charts hand-drawn on Canvas 2D with theme tokens.
+- Heavy work is chunked or deferred (idle callback + IntersectionObserver) so the page never freezes on load.
