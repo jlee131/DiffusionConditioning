@@ -21,22 +21,28 @@ export function alphaSigma(t, size = 32) {
 }
 
 // ------------------------------------------------------------------ weights --
-// onProgress(fraction in [0, 1]) is called while weights.bin downloads (if the server sends Content-Length)
+// onProgress(fraction in [0, 1]) is called while weights.bin downloads.
+// The true size comes from the manifest: servers such as GitHub Pages gzip the file, and then Content-Length is the
+// compressed size while the stream yields decompressed bytes, so it cannot size the buffer.
 export async function loadWeights(base, onProgress = null) {
   const manifest = await fetch(`${base}manifest.json`).then((r) => r.json());
   const res = await fetch(`${base}weights.bin`);
-  const total = +res.headers.get('Content-Length') || 0;
+  if (!res.ok) throw new Error(`weights.bin: HTTP ${res.status}`);
+  const total = 4 * manifest.tensors.reduce((m, t) => Math.max(m, t.offset + t.shape.reduce((a, b) => a * b, 1)), 0);
   let buf;
-  if (onProgress && total && res.body) {
-    const bytes = new Uint8Array(total);
+  if (onProgress && res.body) {
+    const chunks = [];
     const reader = res.body.getReader();
     let got = 0;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      bytes.set(value, got); got += value.length;
-      onProgress(got / total);
+      chunks.push(value); got += value.length;
+      onProgress(Math.min(1, got / total));
     }
+    const bytes = new Uint8Array(got);
+    let o = 0;
+    for (const c of chunks) { bytes.set(c, o); o += c.length; }
     buf = bytes.buffer;
   } else {
     buf = await res.arrayBuffer();

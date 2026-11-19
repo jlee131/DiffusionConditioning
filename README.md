@@ -2,7 +2,7 @@
 
 An interactive, browser-only explainer of three ways to steer a diffusion model: **classifier guidance (CG)**, **classifier-free guidance (CFG)** and **training-free guidance (TFG)**. Final project for *Mathematics of Diffusion Models* (SNU, Fall 2026).
 
-**Live site:** https://jlee131.github.io/diffusion-conditioning/
+**Live site:** https://jlee131.github.io/DiffusionConditioning/
 
 All three methods are written as one update on the DDIM noise prediction,
 
