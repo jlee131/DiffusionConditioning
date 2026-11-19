@@ -1,11 +1,13 @@
 """Train the noisy style classifier for CG on latents from make_cg_dataset.py.
 
-z_t = alpha_t z0 + sigma_t eps with t ~ U{1..999} (SD 1.5 schedule), BCE on pencil (1) vs photo (0).
+z_t = alpha_t z0 + sigma_t eps with t ~ U{1..999} (SD 1.5 schedule).
+    --mode 3class (default): softmax CE over (photo, photo_bw, pencil); CG uses f_pencil - f_photo
+    --mode binary          : BCE pencil (1) vs photo + photo_bw (0), pos_weight for equal priors
 
 Output: runs/cg_classifier/classifier.pt, log.json
-        results/cg_classifier/acc_vs_t.png   (validation accuracy / BCE vs t)
+        results/cg_classifier/acc_vs_t.png   (validation pencil-vs-photo accuracy vs t)
 
-Usage:  python -m pipeline.sd.train_cg_classifier [--iters 15000] [--batch 128]
+Usage:  python -m pipeline.sd.train_cg_classifier [--mode 3class] [--iters 12000] [--batch 128]
 """
 import argparse
 import json
@@ -15,7 +17,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
-from .cg_classifier import CKPT, NoisyClassifier
+from .cg_classifier import CKPT, CLASSES, NoisyClassifier
 from .models import DEVICE, ROOT
 
 DATA = ROOT / "data" / "cg_latents"
@@ -29,8 +31,9 @@ def schedule():
 
 
 def load_latents():
+    """y = class index into CLASSES (photo 0, photo_bw 1, pencil 2)."""
     xs, ys = [], []
-    for label, cls in enumerate(("photo", "pencil")):
+    for label, cls in enumerate(CLASSES):
         for p in sorted((DATA / cls).glob("shard_*.pt")):
             try:
                 z0 = torch.load(p, map_location="cpu", weights_only=True)["z0"]
@@ -39,22 +42,31 @@ def load_latents():
                 continue
             xs.append(z0)
             ys.append(torch.full((len(z0),), float(label)))
-    x, y = torch.cat(xs), torch.cat(ys)
-    print(f"loaded {len(x)} latents (pencil {int(y.sum())}, photo {int((1 - y).sum())})")
+    x, y = torch.cat(xs), torch.cat(ys).long()
+    print("loaded " + ", ".join(f"{c} {int((y == k).sum())}" for k, c in enumerate(CLASSES)))
     return x, y
 
 
 @torch.no_grad()
 def evaluate(model, x, y, ac, gen_seed=0):
+    """acc = pencil-vs-photo accuracy of the CG logit (photo_bw counts as photo); acc3 = 3-way accuracy."""
     g = torch.Generator(device="cpu").manual_seed(gen_seed)
     noise = torch.randn(x.shape, generator=g).to(DEVICE)
+    is_pencil = (y == CLASSES.index("pencil")).float()
     out = {}
     for t in VAL_T:
         a, s = ac[t].sqrt(), (1 - ac[t]).sqrt()
-        logit = torch.cat([model(a * x[i:i + 256] + s * noise[i:i + 256], torch.tensor([t], device=DEVICE))
-                           for i in range(0, len(x), 256)])
-        out[t] = {"acc": ((logit > 0).float() == y).float().mean().item(),
-                  "bce": F.binary_cross_entropy_with_logits(logit, y).item()}
+        tt = torch.tensor([t], device=DEVICE)
+        f = torch.cat([model.logits(a * x[i:i + 256] + s * noise[i:i + 256], tt) for i in range(0, len(x), 256)])
+        if model.n_classes == 1:
+            logit = f.squeeze(-1)
+            out[t] = {"acc": ((logit > 0).float() == is_pencil).float().mean().item()}
+        else:
+            logit = f[:, CLASSES.index("pencil")] - f[:, CLASSES.index("photo")]
+            m = y != CLASSES.index("photo_bw")  # the CG logit compares pencil and photo only
+            out[t] = {"acc": ((logit[m] > 0).float() == is_pencil[m]).float().mean().item(),
+                      "acc3": (f.argmax(1) == y).float().mean().item(),
+                      "bw_as_pencil": (f.argmax(1)[y == 1] == 2).float().mean().item()}
     return out
 
 
@@ -77,7 +89,8 @@ def plot(ev, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--iters", type=int, default=6000)
+    ap.add_argument("--mode", choices=["3class", "binary"], default="3class")
+    ap.add_argument("--iters", type=int, default=12000)
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--val-frac", type=float, default=0.1)
@@ -93,8 +106,18 @@ def main():
     xv, yv = x[perm[:n_val]].to(DEVICE).float(), y[perm[:n_val]].to(DEVICE)
     xt, yt = x[perm[n_val:]].to(DEVICE).float(), y[perm[n_val:]].to(DEVICE)
     ac = schedule()
+    # equal effective class priors, so the CG logit stays log p(z|pencil) - log p(z|photo)
+    counts = torch.bincount(yt, minlength=len(CLASSES)).float().clamp(min=1)
+    is_pencil_t = (yt == CLASSES.index("pencil")).float()
+    if args.mode == "binary":
+        n_classes = 1
+        pos_weight = ((1 - is_pencil_t).sum() / is_pencil_t.sum()).reshape(1)
+    else:
+        n_classes = 3
+        class_w = counts.mean() / counts
+    config = {"n_classes": n_classes}
 
-    model = NoisyClassifier().to(DEVICE)
+    model = NoisyClassifier(**config).to(DEVICE)
     print(f"params: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M, train {len(xt)}, val {len(xv)}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.05)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=args.iters, pct_start=0.05)
@@ -110,7 +133,12 @@ def main():
         a, s = ac[t].sqrt()[:, None, None, None], (1 - ac[t]).sqrt()[:, None, None, None]
         zt = a * z0 + s * torch.randn_like(z0)
         with torch.autocast("cuda", dtype=torch.float16):
-            loss = F.binary_cross_entropy_with_logits(model(zt, t).float(), lab)
+            f = model.logits(zt, t).float()
+            if n_classes == 1:
+                target = (lab == CLASSES.index("pencil")).float()
+                loss = F.binary_cross_entropy_with_logits(f.squeeze(-1), target, pos_weight=pos_weight)
+            else:
+                loss = F.cross_entropy(f, lab, weight=class_w)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.step(opt)
@@ -123,11 +151,13 @@ def main():
             ev = evaluate(model, xv, yv, ac)
             model.train()
             accs = " ".join(f"{t}:{ev[t]['acc']:.2f}" for t in VAL_T)
-            print(f"it {it:6d} train_bce {run_loss / n_run:.4f} | val acc {accs} | {(time.time() - t0) / 60:.1f} min",
-                  flush=True)
-            log.append({"it": it, "train_bce": run_loss / n_run, "val": ev})
+            print(f"it {it:6d} loss {run_loss / n_run:.4f} | pencil-vs-photo acc {accs} | "
+                  f"{(time.time() - t0) / 60:.1f} min", flush=True)
+            if n_classes == 3:
+                print("          3-way acc " + " ".join(f"{t}:{ev[t]['acc3']:.2f}" for t in VAL_T), flush=True)
+            log.append({"it": it, "loss": run_loss / n_run, "val": ev})
             run_loss, n_run = 0.0, 0
-            torch.save({"model": model.state_dict(), "config": {}, "iters": it}, CKPT)
+            torch.save({"model": model.state_dict(), "config": config, "iters": it}, CKPT)
 
     json.dump(log, open(CKPT.parent / "log.json", "w"), indent=1)
     plot(log[-1]["val"], RESULTS / "acc_vs_t.png")

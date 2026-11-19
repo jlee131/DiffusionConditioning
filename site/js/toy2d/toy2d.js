@@ -17,15 +17,16 @@ heat.width = heat.height = HEAT;
 const hctx = heat.getContext('2d');
 
 const state = {
-  method: 'none', scale: 1, tStart: 1, estimated: false, kappa: 0.5,
-  bg: 'density', arBase: true, arGuide: true, arTotal: false, particles: true, x0: true, x0kind: 'guided',
-  frame: 0, playing: false, hover: null, pinned: -1, x0Path: false,
+  method: 'cg', scale: 1.5, tStart: 1, estimated: true, kappa: 0.5,
+  bg: 'density', arBase: true, arGuide: true, arTotal: false, particles: true, x0: false, x0kind: 'guided',
+  frame: 50, playing: false,   // start mid-way (t ~ 0.38), where contours and guidance are visible hover: null, pinned: -1, x0Path: false,
 };
 const model = { comps: DEFAULT_COMPONENTS, clsComps: null, condComps: null, estimated: false, target: [-0.2, 2.3] };
 const noise = gaussianPairs(N_PART, 7);
 const chartNoise = gaussianPairs(200, 99);
 let frames = [], finalLabel = [];
 
+const uiFont = () => getComputedStyle(document.body).fontFamily;  // canvas text follows the page font
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function rgb(hex) {
   const h = hex.replace('#', '');
@@ -35,7 +36,8 @@ function rgb(hex) {
 let C = {};
 function readColors() {
   C = { ink: css('--ink'), muted: css('--muted'), line: css('--line'), accent: css('--accent'), photo: css('--photo'),
-    pencil: css('--pencil'), base: css('--base'), total: css('--total'), card: css('--card') };
+    pencil: css('--pencil'), base: css('--base'), total: css('--total'), card: css('--card'),
+    mcg: css('--m-cg'), mcfg: css('--m-cfg'), mtfg: css('--m-tfg') };
 }
 
 // ---------------------------------------------------------------- model --
@@ -177,7 +179,13 @@ function drawArrows(t) {
   };
   for (const p of pts) {
     const X = px(p.x), Y = py(p.y);
-    if (state.arBase) { const [dx, dy] = len(p.s[0], p.s[1]); arrow(X, Y, dx, dy, C.base, 1.4 * dpr); }
+    if (state.arBase) {
+      // with guidance on, fade the base score so the guidance arrows stand out
+      const [dx, dy] = len(p.s[0], p.s[1]);
+      ctx.globalAlpha = state.method !== 'none' && state.arGuide ? 0.3 : 1;
+      arrow(X, Y, dx, dy, C.base, 1.4 * dpr);
+      ctx.globalAlpha = 1;
+    }
     if (state.arGuide && p.g) { const [dx, dy] = len(p.g[0], p.g[1]); arrow(X, Y, dx, dy, C.accent, 1.8 * dpr); }
     if (state.arTotal) {
       const gx = p.g ? p.g[0] : 0, gy = p.g ? p.g[1] : 0;
@@ -295,7 +303,7 @@ function drawFocus(fr, i) {
   ctx.lineWidth = 2.5 * dpr; ctx.strokeStyle = col;
   ctx.beginPath(); ctx.arc(px(kx[i]), py(ky[i]), 7 * dpr, 0, 2 * Math.PI); ctx.stroke();
 
-  ctx.font = `${12 * dpr}px system-ui, sans-serif`; ctx.fillStyle = C.ink;
+  ctx.font = `${12 * dpr}px ${uiFont()}`; ctx.fillStyle = C.ink;
   ctx.fillText('x_t', px(fr.x[i]) + 9 * dpr, py(fr.y[i]) - 9 * dpr);
   ctx.fillText('x̂₀ (estimate)', px(kx[i]) + 10 * dpr, py(ky[i]) + 16 * dpr);
   ctx.fillText('endpoint', px(endF.x[i]) + 10 * dpr, py(endF.y[i]) - 10 * dpr);
@@ -303,6 +311,71 @@ function drawFocus(fr, i) {
     ctx.fillStyle = C.muted;
     ctx.fillText('pinned (click empty space to release)', 10 * dpr, H - 10 * dpr);
   }
+}
+
+// Classifier contours p_t(pencil | x) = 0.25 / 0.5 / 0.75 (CG and CFG only): the guidance g_t is the gradient
+// of log p_t(pencil | x), so its arrows cross these lines at right angles, pointing uphill toward pencil.
+const CON = 90, CON_LEVELS = [0.25, 0.5, 0.75];
+let conKey = '', conSegs = [];
+function contourSegments(t) {
+  const useCls = model.estimated && state.method === 'cg';   // same classifier as the background view
+  const key = [t, useCls, state.kappa].join('|');
+  if (key === conKey) return conSegs;
+  conKey = key;
+  const comps = useCls ? model.clsComps : model.comps;
+  const n = CON + 1, v = new Float64Array(n * n);
+  const gx = (i) => -R + (i / CON) * 2 * R, gy = (j) => R - (j / CON) * 2 * R;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) v[j * n + i] = fieldAt(comps, t, gx(i), gy(j)).pc;
+  conSegs = CON_LEVELS.map((lv) => {
+    const segs = [];
+    const lerp = (a, b, va, vb) => a + ((lv - va) / (vb - va)) * (b - a);
+    for (let j = 0; j < CON; j++) for (let i = 0; i < CON; i++) {
+      const a = v[j * n + i], b = v[j * n + i + 1], c = v[(j + 1) * n + i + 1], d = v[(j + 1) * n + i];
+      const pts = [];   // crossings on edges top (a-b), right (b-c), bottom (d-c), left (a-d)
+      if ((a < lv) !== (b < lv)) pts.push([lerp(gx(i), gx(i + 1), a, b), gy(j)]);
+      if ((b < lv) !== (c < lv)) pts.push([gx(i + 1), lerp(gy(j), gy(j + 1), b, c)]);
+      if ((d < lv) !== (c < lv)) pts.push([lerp(gx(i), gx(i + 1), d, c), gy(j + 1)]);
+      if ((a < lv) !== (d < lv)) pts.push([gx(i), lerp(gy(j), gy(j + 1), a, d)]);
+      if (pts.length >= 2) segs.push([pts[0], pts[1]]);
+      if (pts.length === 4) segs.push([pts[2], pts[3]]);
+    }
+    return { lv, segs };
+  });
+  return conSegs;
+}
+function drawContours(t) {
+  if (state.method !== 'cg' && state.method !== 'cfg') return;
+  ctx.save();
+  ctx.font = `${11 * dpr}px ${uiFont()}`;
+  for (const { lv, segs } of contourSegments(t)) {
+    if (!segs.length) continue;
+    const mid = lv === 0.5;
+    // soft, wide bands in the guidance color: they read as background behind the arrows
+    // width grows with the level (0.25 -> 0.5 -> 0.75): thicker = more confidently pencil
+    ctx.strokeStyle = C.accent; ctx.globalAlpha = 0.14 + 0.16 * lv;
+    ctx.lineWidth = (2 + 8 * lv) * dpr;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    let lab = null;
+    for (const [p, q] of segs) {
+      ctx.moveTo(px(p[0]), py(p[1])); ctx.lineTo(px(q[0]), py(q[1]));
+      // 0.5 is labelled at its top end, 0.25 / 0.75 where they cross the lower half (y = -R/2),
+      // where the three lines are well apart
+      const score = mid ? p[1] : -Math.abs(p[1] + R / 2);
+      if (!lab || score > lab.score) lab = { x: p[0], y: p[1], score };
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (lab) {
+      const text = mid ? 'p(pencil | x) = 0.5' : `${lv}`;
+      const tw = ctx.measureText(text).width;
+      const X = Math.min(px(lab.x) + 5 * dpr, W - tw - 6 * dpr);
+      const Y = mid ? Math.max(py(lab.y) + 14 * dpr, 30 * dpr) : Math.min(py(lab.y) + 4 * dpr, H - 8 * dpr);
+      ctx.globalAlpha = 0.9; ctx.fillStyle = C.accent;
+      ctx.fillText(text, X, Y);
+    }
+  }
+  ctx.restore();
 }
 
 function drawTarget() {
@@ -319,6 +392,7 @@ function draw() {
   ctx.fillStyle = C.card; ctx.fillRect(0, 0, W, H);
   drawHeat(t);
   drawDataRings();
+  drawContours(t);
   drawArrows(t);
   const fi = focusIndex(fr);
   drawParticles(fr, fi >= 0);
@@ -326,9 +400,10 @@ function draw() {
   drawTarget();
   // guidance-off indicator
   const on = state.method !== 'none' && t <= state.tStart + 1e-9 && state.scale !== 0;
-  ctx.font = `${12 * dpr}px system-ui, sans-serif`;
+  ctx.font = `${12 * dpr}px ${uiFont()}`;
   ctx.fillStyle = on ? C.accent : C.muted;
   ctx.fillText(state.method === 'none' ? 'no guidance' : on ? `${state.method.toUpperCase()} guidance ON` : 'guidance OFF (t > start)', 10 * dpr, 18 * dpr);
+  $('toy-leg-x0').style.display = state.x0 ? '' : 'none';
   $('toy-tlabel').textContent = `t = ${t.toFixed(2)}`;
   $('toy-time').value = state.frame;
   updateReadout(t);
@@ -390,7 +465,7 @@ function computeChart() {
       for (let i = 0; i < last.x.length; i++) d += Math.hypot(last.x[i] - model.target[0], last.y[i] - model.target[1]);
       return d / last.x.length;
     });
-    chartData = { kind: 'tfg', ss, series: [{ name: 'TFG', vals: dist, color: C.accent, dash: [] }] };
+    chartData = { kind: 'tfg', ss, series: [{ name: 'TFG', vals: dist, color: C.mtfg, dash: [] }] };
   } else {
     const frac = (method) => ss.map((s) => {
       const fr = simulate(model, { method, scale: s, tStart: state.tStart, nSteps: 40 }, chartNoise);
@@ -400,8 +475,8 @@ function computeChart() {
       return k / last.x.length;
     });
     chartData = { kind: 'frac', ss, series: [
-      { name: 'CG', vals: frac('cg'), color: C.accent, dash: [] },
-      { name: 'CFG', vals: frac('cfg'), color: C.ink, dash: [6, 4] },
+      { name: 'CG', vals: frac('cg'), color: C.mcg, dash: [] },
+      { name: 'CFG', vals: frac('cfg'), color: C.mcfg, dash: [6, 4] },
     ] };
   }
   drawChart();
@@ -416,7 +491,7 @@ function drawChart() {
   const ymax = chartData.kind === 'frac' ? 1 : Math.max(...chartData.series[0].vals) * 1.1;
   const X = (s) => m.l + (s / 5) * (w - m.l - m.r);
   const Y = (v) => h - m.b - (v / ymax) * (h - m.t - m.b);
-  cctx.font = `${11 * dpr}px system-ui, sans-serif`;
+  cctx.font = `${11 * dpr}px ${uiFont()}`;
   cctx.strokeStyle = C.line; cctx.fillStyle = C.muted; cctx.lineWidth = 1 * dpr;
   for (let k = 0; k <= 4; k++) {
     const v = (ymax * k) / 4;
@@ -437,11 +512,14 @@ function drawChart() {
     cctx.fillStyle = sr.color;
     cctx.fillText(sr.name + (model.estimated && sr.name !== 'TFG' ? ' (est.)' : ''), w - m.r - 80 * dpr, h - m.b - 28 * dpr + idx * 14 * dpr);
   });
-  $('toy-chart-cap').textContent = chartData.kind === 'frac'
+  $('toy-chart-title').textContent = chartData.kind === 'frac'
+    ? 'Pencil fraction vs. guidance scale' : 'Distance to TFG target vs. guidance scale';
+  const CG = '<b class="m-cg">CG</b>', CFG = '<b class="m-cfg">CFG</b>', TFG = '<b class="m-tfg">TFG</b>';
+  $('toy-chart-cap').innerHTML = chartData.kind === 'frac'
     ? (model.estimated
-      ? 'Fraction ending as pencil vs s. With estimation error, CG and CFG no longer agree.'
-      : 'Fraction ending as pencil vs s. Oracle CG and CFG coincide (the curves overlap).')
-    : 'Mean final distance to the TFG target vs s.';
+      ? `Fraction ending as pencil vs s. With estimation error, ${CG} and ${CFG} no longer agree.`
+      : `Fraction ending as pencil vs s. Oracle ${CG} and ${CFG} coincide (the curves overlap).`)
+    : `Mean final distance to the ${TFG} target vs s.`;
 }
 
 // ------------------------------------------------------------ controls --
@@ -466,19 +544,14 @@ $('toy-scale').addEventListener('input', (e) => {
   state.scale = +e.target.value; $('toy-scale-v').textContent = `s = ${state.scale.toFixed(2)}`;
   resimulate(); drawChart();
 });
-$('toy-start').addEventListener('input', (e) => {
-  state.tStart = +e.target.value; $('toy-start-v').textContent = state.tStart.toFixed(2);
-  resimulate(); scheduleChart();
-});
 $('toy-kappa').addEventListener('input', (e) => {
   state.kappa = +e.target.value; $('toy-kappa-v').textContent = `κ = ${state.kappa.toFixed(2)}`;
   rebuildModel(); resimulate(); scheduleChart();
 });
-$('toy-bg').addEventListener('change', (e) => { state.bg = e.target.value; draw(); });
+seg('toy-bg', 'bg', () => draw());
 [['toy-ar-base', 'arBase'], ['toy-ar-guide', 'arGuide'], ['toy-ar-total', 'arTotal'], ['toy-particles', 'particles'], ['toy-x0', 'x0'],
   ['toy-x0path', 'x0Path']]
   .forEach(([id, key]) => $(id).addEventListener('change', (e) => { state[key] = e.target.checked; draw(); }));
-$('toy-x0kind').addEventListener('change', (e) => { state.x0kind = e.target.value; draw(); });
 $('toy-time').max = N_STEPS;
 $('toy-time').addEventListener('input', (e) => { state.frame = +e.target.value; stop(); draw(); });
 
@@ -522,7 +595,9 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', () => { if (dragging) { dragging = false; scheduleChart(); } });
 canvas.addEventListener('pointerleave', () => { state.hover = null; draw(); });
 
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); heatKey = ''; draw(); computeChart(); });
+const onTheme = () => { readColors(); heatKey = ''; draw(); computeChart(); };
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onTheme);
+window.addEventListener('themechange', onTheme);
 window.addEventListener('resize', resize);
 
 // Optional URL state, e.g. ?method=cfg&s=2&frame=50&model=estimated&bg=classifier
@@ -530,11 +605,10 @@ function applyUrlState() {
   const q = new URLSearchParams(location.search);
   const click = (id, v) => { const b = $(id).querySelector(`button[data-v="${v}"]`); b && b.click(); };
   if (q.has('s')) { $('toy-scale').value = q.get('s'); $('toy-scale').dispatchEvent(new Event('input')); }
-  if (q.has('start')) { $('toy-start').value = q.get('start'); $('toy-start').dispatchEvent(new Event('input')); }
   if (q.has('model')) click('toy-model', q.get('model'));
   if (q.has('kappa')) { $('toy-kappa').value = q.get('kappa'); $('toy-kappa').dispatchEvent(new Event('input')); }
   if (q.has('method')) click('toy-method', q.get('method'));
-  if (q.has('bg')) { $('toy-bg').value = q.get('bg'); state.bg = q.get('bg'); }
+  if (q.has('bg')) click('toy-bg', q.get('bg'));
   if (q.has('frame')) state.frame = Math.min(N_STEPS, +q.get('frame'));
   if (q.has('pin')) state.pinned = +q.get('pin');
   if (q.has('x0path')) { state.x0Path = true; $('toy-x0path').checked = true; }

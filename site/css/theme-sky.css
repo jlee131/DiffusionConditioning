@@ -1,0 +1,171 @@
+/* Sky / peach / coral theme (from .documents/ui-style-preferences.SKILL.md).
+   Loaded on top of main.css when the URL has ?style=sky; main.css alone is the saved v1 design.
+   Light and dark: dark follows the system setting unless data-theme="light"|"dark" is set (toggle in the hero).
+   Selectors use [data-style="sky"] so they outrank main.css's dark tokens. */
+
+:root[data-style="sky"] {
+  /* palette (one role per hue) */
+  --sky: #75BDE0;
+  --sky-deep: #2A7DAA;
+  --sky-deepened: #3E9ED3;
+  --sky-light: #E3F2FA;
+  --peach: #F8BC9B;
+  --peach-light: #FDE8DC;
+  --peach-ink: #9A4A2A;
+  --coral: #F89B9B;
+  --coral-ink: #6B2626;
+  --coral-bg: #F89B9B;
+  --navy: #23384F;
+
+  /* role tokens used by main.css and the canvas code (hex only: toy2d parses them) */
+  --bg: #F8F9FB;
+  --card: #FFFFFF;
+  --ink: #3A4659;
+  --muted: #677184;
+  --line: #E8EAEE;
+  --control-line: #D9DEE5;
+  --accent: #E0666B;     /* guidance arrows: coral, deepened for contrast on the heatmap */
+  --photo: #E8895A;      /* photo cats: peach, deepened for small dots */
+  --pencil: #2A7DAA;     /* pencil cats: deep sky */
+  --base: #A3ACB9;
+  --total: #23384F;
+  --seg-on: #3E9ED3;
+  --seg-on-ink: #23384F;
+  --m-none: #8A93A3;
+  --m-cfg: #2A7DAA;      /* sky */
+  --m-cg: #E0666B;       /* coral */
+  --m-tfg: #7E6BD6;      /* lavender: peach was too close to coral in charts */
+  --strong: #23384F;     /* headings, emphasized text */
+  --on-accent: #23384F;  /* text on sky fills */
+  --shadow: 0 1px 2px rgba(35, 56, 79, .04);
+  --help-mobile: #8A93A3;
+  color-scheme: light;
+}
+
+/* ---- dark: deep navy surfaces, the same three hues lifted for contrast ---- */
+@media (prefers-color-scheme: dark) {
+  :root[data-style="sky"]:not([data-theme="light"]) {
+    --sky: #75BDE0; --sky-deep: #8CCDEE; --sky-deepened: #75BDE0; --sky-light: #1A3042;
+    --peach: #F8BC9B; --peach-light: #3A2A22; --peach-ink: #F8BC9B;
+    --coral: #F89B9B; --coral-ink: #FFC2C2; --coral-bg: #3B2326;
+    --bg: #0E141B; --card: #151E28; --ink: #DCE3EB; --muted: #93A0B0; --line: #233140; --control-line: #2F4052;
+    --accent: #F48A8F; --photo: #F8A97E; --pencil: #75BDE0; --base: #5E6D80; --total: #DCE3EB;
+    --seg-on: #75BDE0; --seg-on-ink: #0E141B;
+    --m-none: #93A0B0; --m-cfg: #75BDE0; --m-cg: #F48A8F; --m-tfg: #B7A6F2;
+    --strong: #F1F5F9; --on-accent: #0E141B; --shadow: none; --help-mobile: #7F8C9C;
+    color-scheme: dark;
+  }
+}
+:root[data-style="sky"][data-theme="dark"] {
+  --sky: #75BDE0; --sky-deep: #8CCDEE; --sky-deepened: #75BDE0; --sky-light: #1A3042;
+  --peach: #F8BC9B; --peach-light: #3A2A22; --peach-ink: #F8BC9B;
+  --coral: #F89B9B; --coral-ink: #FFC2C2; --coral-bg: #3B2326;
+  --bg: #0E141B; --card: #151E28; --ink: #DCE3EB; --muted: #93A0B0; --line: #233140; --control-line: #2F4052;
+  --accent: #F48A8F; --photo: #F8A97E; --pencil: #75BDE0; --base: #5E6D80; --total: #DCE3EB;
+  --seg-on: #75BDE0; --seg-on-ink: #0E141B;
+  --m-none: #93A0B0; --m-cfg: #75BDE0; --m-cg: #F48A8F; --m-tfg: #B7A6F2;
+  --strong: #F1F5F9; --on-accent: #0E141B; --shadow: none; --help-mobile: #7F8C9C;
+  color-scheme: dark;
+}
+
+.theme-toggle {
+  float: right; margin-top: -4px; padding: 5px 12px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--control-line); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600;
+}
+.theme-toggle:hover { background: var(--sky-light); }
+
+body {
+  font-family: "Source Sans 3", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  color: var(--ink);
+}
+:root:lang(ko) {
+  font-family: "Source Sans 3", "Apple SD Gothic Neo", "Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", sans-serif;
+  word-break: keep-all; overflow-wrap: anywhere; font-synthesis: weight;
+}
+
+/* ---- typographic hierarchy ---- */
+h1 { font-size: 52px; font-weight: 600; letter-spacing: -0.01em; color: var(--strong); margin: 88px 0 54px; }
+h2 { font-size: 34px; font-weight: 600; color: var(--strong); }
+section > h2 { margin-bottom: 32px; }
+.hero { padding: 64px 0 90px; }
+main > section.wrap { padding-top: 56px; }
+main > section.wrap + section.wrap { margin-top: 88px; padding-top: 88px; border-top: 1px solid var(--line); }
+main > section > h2 { margin-top: 0; }
+.lede b { font-weight: 600; }
+.cap-body { font-size: 15px; color: var(--ink); }
+h3 { font-size: 18px; font-weight: 600; color: var(--strong); margin-bottom: 8px; }
+p { max-width: 830px; }
+.lede { font-size: 17px; font-weight: 400; color: var(--muted); }
+.chart-title { font-size: 17px; font-weight: 600; color: var(--strong); }
+.sd-main > label { font-size: 16px; color: var(--strong); }
+.sd-seeds button.on { border-color: var(--sky-deepened); }
+.sd-fold summary { font-size: 14px; }
+.sk-go { border-color: var(--peach); color: var(--strong); font-size: 15px; }
+.sk-go:hover:not(:disabled) { background: var(--peach-light); }
+.sk-mode { border-color: var(--coral); }
+.kicker { font-size: 13px; color: var(--muted); }
+figcaption { font-size: 14px; color: var(--muted); }
+figcaption b { color: var(--ink); font-weight: 600; }
+.math-card p { font-size: 15px; }
+.math-card p > b { font-size: 16px; font-weight: 700; }
+.num { background: var(--sky-light); color: var(--sky-deep); font-weight: 600; }
+
+.toc a { color: var(--ink); border-bottom: 2px solid var(--line); }
+.toc a:hover { border-color: var(--peach); }
+
+/* ---- cards and controls ---- */
+.toy-stage, .toy-panel, .chart-card, .math-card, .sd-controls, .sd-col, .sd-timebar {
+  border-color: var(--line); box-shadow: var(--shadow);
+}
+.ctl label { font-size: 14px; font-weight: 600; color: var(--ink); }
+.ctl label.sub, .checks label { font-weight: 400; color: var(--muted); }
+.seg { border-color: var(--control-line); }
+.seg button { font-size: 14px; font-weight: 600; color: var(--ink); }
+.seg button + button { border-left-color: var(--control-line); }
+.seg button:hover:not(.on) { background: var(--sky-light); }
+.seg button.on { background: var(--seg-on); color: var(--seg-on-ink); }
+.btn { border: 1px solid var(--control-line); background: var(--card); color: var(--ink); font-weight: 600; }
+.btn:hover { background: var(--sky-light); }
+.ctl select { border-color: var(--control-line); }
+input[type=range] { accent-color: var(--sky-deepened); }
+input[type=checkbox] { accent-color: var(--sky-deepened); }
+:focus-visible { outline: 2px solid var(--sky-deep); outline-offset: 2px; }
+.hint { color: var(--sky-deep); font-size: 14px; }
+.readout { font-size: 13px; }
+.badge { font-size: 13px; background: var(--sky-light); border: 1px solid var(--sky); color: var(--strong); }
+.chip.photo { background: var(--peach-light); color: var(--peach-ink); }
+.chip.pencil { background: var(--sky-light); color: var(--strong); }
+
+/* ---- SD section: reference card first (coral header), candidates neutral with peach badges ---- */
+.sd-col { border-top: 1px solid var(--line); padding: 0 10px 10px; overflow: hidden; }
+.sd-col h3 { padding: 8px 10px; margin: 0 -10px 8px; background: var(--card); border-bottom: 1px solid var(--line);
+  font-size: 16px; min-height: 46px; align-items: center; }
+.sd-col h3 small { font-size: 13px; }
+.sd-col[data-method="none"] { border-color: var(--coral); }
+.sd-col[data-method="none"] h3 { background: var(--coral-bg); border-bottom-color: var(--coral); }
+.sd-col[data-method="none"] h3 span, .sd-col[data-method="none"] h3 small { color: var(--coral-ink); }
+.sd-col:not([data-method="none"]) h3 span::before {
+  display: inline-grid; place-items: center; width: 29px; height: 29px; margin-right: 8px; border-radius: 6px;
+  background: var(--peach-light); color: var(--peach-ink); font-size: 14px; font-weight: 600; vertical-align: middle;
+}
+.sd-col[data-method="cfg"] h3 span::before { content: "A"; }
+.sd-col[data-method="cg"] h3 span::before { content: "B"; }
+.sd-col[data-method="tfg"] h3 span::before { content: "C"; }
+.sd-small figcaption { font-size: 12px; }
+.sd-meter { font-size: 13px; }
+.sd-seeds button.on { border-color: var(--sky-deepened); }
+
+@media (max-width: 760px) {
+  h1 { font-size: 40px; margin: 48px 0 32px; }
+  h2 { font-size: 26px; }
+  section > h2 { margin-bottom: 20px; }
+  .hero { padding: 40px 0 56px; }
+  main > section.wrap { padding-top: 40px; }
+  main > section.wrap + section.wrap { margin-top: 56px; padding-top: 56px; }
+  .lede { font-size: 18px; }
+  figcaption { font-size: 13px; color: var(--help-mobile); }
+  .math-card p { font-size: 14px; }
+  .sd-col h3 span::before { width: 22px; height: 22px; font-size: 12px; }
+}

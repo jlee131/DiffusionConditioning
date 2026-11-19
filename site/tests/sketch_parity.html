@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sketch Parity Test</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 24px; background: #fff; color: #222; }
+    pre { background: #f4f5f7; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+    .pass { color: #2b8a3e; font-weight: 700; } .fail { color: #c92a2a; font-weight: 700; }
+    .warn { color: #b35c00; font-weight: 700; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/tf-backend-wasm.min.js"></script>
+</head>
+<body>
+<h1>Sketch UNet parity (TF.js vs PyTorch)</h1>
+<p>Pass criterion: max abs error below 1e-3 for eps and for the guidance gradient.
+  Backend order: WebGL, then WASM, then CPU. Force one with <code>?backend=webgl|wasm|cpu</code>.</p>
+<pre id="out">starting...</pre>
+<script type="module">
+  import { alphaBar, alphaSigma, loadWeights, unet } from '../js/sketch/unet.js';
+  const out = document.getElementById('out');
+  const lines = [];
+  const log = (s) => { lines.push(s); out.innerHTML = lines.join('\n'); };
+  const step = (s) => { log(`… ${s}`); return new Promise((r) => setTimeout(r, 0)); };   // let the page repaint
+  const maxAbs = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0);
+  const ms = (t) => `${(performance.now() - t).toFixed(0)} ms`;
+
+  function webglInfo() {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return 'WebGL: not available in this browser (check that hardware acceleration is on)';
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const r = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    return `WebGL: ${gl instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1'} — ${r}`;
+  }
+
+  try {
+    log(webglInfo());
+    tf.wasm.setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
+    const forced = new URLSearchParams(location.search).get('backend');
+    for (const b of forced ? [forced] : ['webgl', 'wasm', 'cpu']) {
+      try { if (await tf.setBackend(b)) break; } catch (e) { log(`backend ${b} failed: ${e.message || e}`); }
+    }
+    await tf.ready();
+    const be = tf.getBackend();
+    log(`backend: <b>${be}</b>${be === 'cpu' ? '  <span class="warn">(slow: pure JavaScript)</span>' : ''}`);
+
+    await step('loading parity vectors and weights (9.4 MB)');
+    let t0 = performance.now();
+    const P = await fetch('../assets/sketch/parity.json').then((r) => r.json());
+    const { W, step: ckStep } = await loadWeights('../assets/sketch/');
+    log(`weights: step ${ckStep}, loaded in ${ms(t0)}`);
+
+    const abErr = Math.max(...P.ab_t.map((t, i) => Math.abs(alphaBar(t) - P.ab[i])));
+    log(`alpha_bar max abs err: ${abErr.toExponential(2)}`);
+
+    await step('forward pass (batch 2)');
+    const B = P.t.length;
+    const x = tf.tensor(P.x, [B, 32, 32, 1]);
+    const t = tf.tensor(P.t);
+    t0 = performance.now();
+    const epsArr = await unet(W, x, t).data();
+    const epsErr = maxAbs(epsArr, P.eps);
+    log(`eps  max abs err: ${epsErr.toExponential(2)}   (first forward incl. warm-up: ${ms(t0)})`);
+
+    await step('gradient through x0_hat and the UNet (batch 2)');
+    const as = P.t.map(alphaSigma);
+    const a = tf.tensor(as.map((v) => v[0]), [B, 1, 1, 1]), s = tf.tensor(as.map((v) => v[1]), [B, 1, 1, 1]);
+    const target = tf.tensor(P.target, [B, 32, 32, 1]);
+    const lossFn = (xx) => tf.mean(tf.square(tf.sub(tf.div(tf.sub(xx, tf.mul(s, unet(W, xx, t))), a), target)));
+    t0 = performance.now();
+    const { value, grad } = tf.valueAndGrad(lossFn)(x);
+    const gArr = await grad.data();
+    const lossErr = Math.abs((await value.data())[0] - P.loss);
+    const gErr = maxAbs(gArr, P.grad);
+    const gMax = Math.max(...P.grad.map(Math.abs));
+    log(`loss abs err: ${lossErr.toExponential(2)}`);
+    log(`grad max abs err: ${gErr.toExponential(2)}   (rel ${(gErr / gMax).toExponential(2)}, first backward: ${ms(t0)})`);
+
+    const ok = epsErr < 1e-3 && gErr < 1e-3 && abErr < 1e-6;
+    log(ok ? '<span class="pass">PASS</span> (accuracy)' : '<span class="fail">FAIL</span> (accuracy)');
+
+    await step('timing: plain step and guided step, batch 4 (after warm-up)');
+    const x4 = tf.randomNormal([4, 32, 32, 1]), t4 = tf.fill([4], 0.5);
+    const a4 = tf.fill([4, 1, 1, 1], alphaSigma(0.5)[0]), s4 = tf.fill([4, 1, 1, 1], alphaSigma(0.5)[1]);
+    const f4 = (xx) => tf.mean(tf.square(tf.div(tf.sub(xx, tf.mul(s4, unet(W, xx, t4))), a4)));
+    await unet(W, x4, t4).data();
+    await tf.grad(f4)(x4).data();
+    t0 = performance.now();
+    for (let k = 0; k < 3; k++) await tf.tidy(() => unet(W, x4, t4)).data();
+    const plain = (performance.now() - t0) / 3;
+    t0 = performance.now();
+    for (let k = 0; k < 3; k++) await tf.tidy(() => tf.grad(f4)(x4)).data();
+    const guided = (performance.now() - t0) / 3;
+    log(`plain step,  batch 4: <b>${plain.toFixed(0)} ms</b>`);
+    log(`guided step, batch 4: <b>${guided.toFixed(0)} ms</b>  → 30 guided steps ≈ ${(30 * guided / 1000).toFixed(1)} s`);
+    document.title = ok ? 'PASS' : 'FAIL';
+  } catch (e) {
+    log(`<span class="fail">ERROR</span> ${e && e.stack || e}`);
+  }
+</script>
+</body>
+</html>

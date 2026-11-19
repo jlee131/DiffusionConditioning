@@ -5,8 +5,9 @@ Unified guidance form (see .documents/PLAN.md):
 
     base : eps_base = eps_null + w_cat * (eps_cat - eps_null)       (cat baseline)
     CFG  : -sigma_t g_t = d_cfg = w_cat * (eps_pencil - eps_cat)     -> s = 1 is the pencil-cat prompt
-    CG   : g_t = grad_z logit_phi(z_t, t), logit = log p(pencil|z_t) - log p(photo|z_t); no calibration,
-           an oracle logit gives exactly the CFG direction at the same s
+    CG   : -sigma_t g_t = -w_cat * sigma_t * grad_z logit_phi(z_t, t), logit = log p(pencil|z_t) - log p(photo|z_t);
+           no calibration. The w_cat factor matches the CFG target p(z) p(pencil|z)^w_cat, so an oracle logit
+           gives exactly the CFG direction at the same s
     TFG  : g_t = -grad_z loss(Decode(x0_hat_base(z_t))), backprop through x0_hat (and the UNet)
 """
 from dataclasses import dataclass, field
@@ -120,7 +121,8 @@ class GuidedSampler:
             cg_dir, logit = None, float("nan")
             if self.classifier is not None:
                 grad, logit = self._cg_grad(z, t)
-                cg_dir = -s * grad  # = -sigma * g_t in eps units; oracle: equals d_cfg
+                # oracle: -sigma * grad logit = eps_pencil - eps_photo, so w_cat * (.) equals d_cfg
+                cg_dir = -w * s * grad
 
             eps_g = eps_base
             if active and spec.method == "cfg":

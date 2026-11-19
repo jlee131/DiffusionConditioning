@@ -1,8 +1,10 @@
 """Generate clean SD latents for training the noisy style classifier used by CG.
 
-Two classes, sampled with exactly the experiment's prompts and base construction (w_cat):
-    photo  : eps_null + w * (eps("a photo of a cat")          - eps_null)
-    pencil : eps_null + w * (eps("a pencil drawing of a cat") - eps_null)   (= CFG s=1 target)
+Sources, sampled with the experiment's base construction (w_cat):
+    photo    : eps_null + w * (eps("a photo of a cat")          - eps_null)
+    pencil   : eps_null + w * (eps("a pencil drawing of a cat") - eps_null)   (= CFG s=1 target)
+    photo_bw : eps_null + w * (eps("a black and white photo of a cat") - eps_null)
+               labelled "photo" (hard negatives): removes the color shortcut so the classifier must use texture
 
 With equal class priors, the classifier's logit gradient
     grad_z [log p_t(z | pencil) - log p_t(z | photo)]
@@ -12,7 +14,7 @@ Output: data/cg_latents/{photo,pencil}/shard_XXXXX.pt  (z0 latents, fp16, plus s
         data/cg_latents/preview_{class}.png            (decoded thumbnails, sanity check)
 Resumable: existing shards are skipped.
 
-Usage:  python -m pipeline.sd.make_cg_dataset --n-per-class 1000 --steps 20 --batch 8
+Usage:  python -m pipeline.sd.make_cg_dataset --n-per-class 2000 --n-bw 1000 --steps 20 --batch 8
 """
 import argparse
 import time
@@ -24,7 +26,8 @@ from .models import DEVICE, DTYPE, ROOT, StableDiffusion
 from .sampler import StyleSetup
 
 OUT = ROOT / "data" / "cg_latents"
-SEED_OFFSET = {"photo": 1_000_000, "pencil": 2_000_000}  # disjoint from experiment seeds
+SEED_OFFSET = {"photo": 1_000_000, "pencil": 2_000_000, "photo_bw": 3_000_000}  # disjoint from experiment seeds
+BW_PROMPT = "a black and white photo of a cat"
 
 
 @torch.no_grad()
@@ -45,21 +48,27 @@ def sample_batch(sd, emb_null, emb_c, seeds, w, n_steps):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n-per-class", type=int, default=1000)
+    ap.add_argument("--n-per-class", type=int, default=2000, help="photo and pencil")
+    ap.add_argument("--n-bw", type=int, default=1000, help="black-and-white photo hard negatives")
     ap.add_argument("--steps", type=int, default=20)
     ap.add_argument("--batch", type=int, default=8)
     args = ap.parse_args()
 
     setup = StyleSetup()
     sd = StableDiffusion()
-    emb = sd.encode_text([setup.neg_prompt, setup.base_prompt, setup.style_prompt])
-    prompts = {"photo": emb[1:2], "pencil": emb[2:3]}
+    emb = sd.encode_text([setup.neg_prompt, setup.base_prompt, setup.style_prompt, BW_PROMPT])
+    prompts = {"photo": emb[1:2], "pencil": emb[2:3], "photo_bw": emb[3:4]}
 
-    n_shards = (args.n_per_class + args.batch - 1) // args.batch
+    def n_shards(n):
+        return (n + args.batch - 1) // args.batch
+    counts = {"photo": n_shards(args.n_per_class), "pencil": n_shards(args.n_per_class),
+              "photo_bw": n_shards(args.n_bw)}
     t_start, done = time.time(), 0
-    total = 2 * n_shards
-    for k in range(n_shards):
-        for cls in ("photo", "pencil"):
+    total = sum(counts.values())
+    for k in range(max(counts.values())):
+        for cls in ("photo", "pencil", "photo_bw"):
+            if k >= counts[cls]:
+                continue
             d = OUT / cls
             d.mkdir(parents=True, exist_ok=True)
             path = d / f"shard_{k:05d}.pt"

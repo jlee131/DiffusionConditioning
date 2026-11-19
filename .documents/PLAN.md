@@ -13,14 +13,25 @@ pipeline/          offline Python (never served)
   sketch/          Quick, Draw! prep, sketch-model training, TF.js weight export
 site/              static website (deployed to GitHub Pages)
   index.html
-  js/              toy2d/, sd/, sketch/, shared/
+  css/             main.css (v1 design), theme-sky.css (default design, layered on top)
+  js/              toy2d/, sd/, sketch/
   assets/sd/       exported sprite sheets + metrics JSON
-  assets/sketch/   TF.js weights + manifest
+  assets/sketch/   TF.js weights + manifest + parity vectors
+  tests/           sketch_parity.html, tfjs_grad_ops.html (browser checks)
+results/           small figures referenced by RESULTS.md (committed)
 models/            SD 1.5 weights (gitignored)
 data/, runs/       datasets, checkpoints, raw precompute output (gitignored)
 ```
 
-Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned versions: KaTeX (equations), TensorFlow.js (Section 3), uPlot or custom canvas for metric plots. Deployment through a GitHub Actions Pages workflow that publishes `site/`.
+Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned versions: KaTeX 0.16.11 (equations), TensorFlow.js 4.22.0 + WASM backend (Section 3). All charts are custom Canvas 2D. Deployment through a GitHub Actions Pages workflow that publishes `site/`.
+
+**Design.** The default design follows `.documents/ui-style-preferences.SKILL.md`:
+- Sky/peach/coral palette in `theme-sky.css`, with a dark mode that follows the system setting. A ☾/☀ toggle (remembered) and `?theme=dark|light` override it.
+- Font: Source Sans 3 (400/600).
+- Method colors: CFG sky, CG coral, TFG lavender.
+- Spacing: large hero spacing, and sections separated by a divider with 88 px above and below.
+
+`?style=default` shows the saved v1 design (`main.css` alone). Canvas modules redraw on a `themechange` event and after web fonts load.
 
 ## Shared Conventions
 
@@ -47,7 +58,18 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 
 **Views.** One main canvas: background heatmap (density $p_t$, guided target density, classifier $p_t(c\mid x)$, or the CG−CFG difference); arrow layers (unconditional score, guidance, total) on a grid; 400 particles from shared noise flowing along DDIM, colored by final class; $\hat x_0$ rings (every 3rd particle) linked to their particles; focusing a particle (hover, or click to pin; Shift+click in TFG mode) dims the others and shows its $x_t$ trail up to the current step (fading with age, in its class color), its current $\hat x_0$ ring labeled "estimate", and a ★ at its actual endpoint, so the gap between estimate and endpoint is visible. The $\hat x_0$ path (dashed) is off by default, behind a checkbox. Controls: time slider + play, method, scale $s$, start time, oracle/estimated toggle + error slider, layer toggles. Side panel: KaTeX equations with live values at the hovered point; a small plot of the fraction of particles ending in the pencil class vs $s$.
 
-**Implementation (done, v1).** Vanilla JS + Canvas 2D: math in `site/js/toy2d/gmm.js`, UI in `toy2d.js`. Checks, run with Node from conda env `webdev`: oracle CG and CFG agree to about 1e-15 relative to the field scale; the score and the $\hat x_0$ Jacobian match finite differences to about 1e-9; at $s=1$, CG and CFG give the same pencil fraction. URL parameters (`?method=cfg&s=2&frame=50&model=estimated&kappa=0.6&bg=classifier`) reproduce a given state. Local preview: `python -m http.server 8765 -d site`.
+**Implementation (done, v1).** Vanilla JS + Canvas 2D: math in `site/js/toy2d/gmm.js`, UI in `toy2d.js`.
+- Node checks (conda env `webdev`): oracle CG and CFG agree to about 1e-15 relative to the field scale; the score and the $\hat x_0$ Jacobian match finite differences to about 1e-9; at $s=1$, CG and CFG give the same pencil fraction.
+- URL parameters (`?method=cfg&s=2&frame=50&model=estimated&kappa=0.6&bg=classifier`) reproduce a given state.
+- Local preview: `python -m http.server 8765 -d site`.
+
+**UI revisions after feedback (11/19).** These supersede the Views paragraph above where they differ.
+- Removed: the guidance start-time slider (guidance is always on), the "guided target" and "CG−CFG difference" backgrounds, and the guided/base $\hat x_0$ selector (always guided).
+- Background is a two-way segment: density $p_t(x)$ or classifier $p_t(\text{pencil}\mid x)$.
+- The six layer checkboxes sit behind a "Display settings" fold, and the hover readout plus the CG=CFG badge sit behind a "Field values" fold.
+- With CG or CFG selected, the classifier contours $p_t(\text{pencil}\mid x)=0.25/0.5/0.75$ are drawn as soft coral bands (4/6/8 px, growing with the level), so the guidance arrows visibly cross them at right angles. With any guidance on, the base-score arrows fade to 30% opacity.
+- Defaults: method CG, Estimated model ($\kappa=0.5$), $s=1.5$, $\hat x_0$ rings off (the legend entry hides with them), and starting frame 50/80 ($t\approx0.38$), where contours and guidance are visible.
+- The chart is titled "Pencil fraction vs. guidance scale" (TFG mode: "Distance to TFG target vs. guidance scale"). Its series and captions use the method colors.
 
 ## Section 2 — Stable Diffusion (offline precompute)
 
@@ -59,8 +81,9 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 
 **CG classifier.**
 1. Dataset (`pipeline/sd/make_cg_dataset.py`): 1000 final latents per class, DDIM 20 steps. Class "photo" uses the base field (cat prompt, $w_\text{cat}$); class "pencil" uses the pencil prompt with the same $w_\text{cat}$, which is exactly the CFG $s=1$ target. The prompts match the experiment exactly. Only $z_0$ is stored (4×64×64 fp16).
-2. Training (`pipeline/sd/train_cg_classifier.py`, model in `cg_classifier.py`): a time-conditioned ResNet (about 6.4M params, GroupNorm + SiLU, no max-pooling so input gradients stay smooth) on $z_t = \alpha_t z_0 + \sigma_t \varepsilon$ with $t \sim U\{1..999\}$ and horizontal-flip augmentation, using binary cross-entropy with equal class priors. Report validation accuracy vs $t$.
-3. Use the **logit** gradient: $g_t = \nabla_z [\log p_\phi(\text{pencil} \mid z_t) - \log p_\phi(\text{photo} \mid z_t)]$. With equal priors, an oracle logit equals $\log p_t(z \mid \text{pencil}) - \log p_t(z \mid \text{photo})$, so its gradient is exactly the CFG direction $-d_\text{cfg}/\sigma_t$. Oracle CG and CFG then coincide at the same $s$, and any measured gap is estimation error. For this reason CG uses no scale calibration (unlike TFG).
+   - v2 (after v1 learned only a color cue, see RESULTS.md): 2000 per class, plus 1000 "a black and white photo of a cat" latents labelled photo (hard negatives that remove the color shortcut). Classifier v2 is **3-class** (photo / photo_bw / pencil, softmax CE with equal effective priors), and CG uses $f_\text{pencil}-f_\text{photo}$. For an oracle this is exactly $\log p_t(z\mid\text{pencil})-\log p_t(z\mid\text{photo})$, so oracle CG = CFG still holds; photo_bw only forces texture features in the shared trunk. (`--mode binary` folds photo_bw into photo; oracle equality is then only approximate.)
+2. Training (`pipeline/sd/train_cg_classifier.py`, model in `cg_classifier.py`): a time-conditioned ResNet (about 6.4M params, GroupNorm + SiLU, no max-pooling so input gradients stay smooth) on $z_t = \alpha_t z_0 + \sigma_t \varepsilon$ with $t \sim U\{1..999\}$ and horizontal-flip augmentation. v1 is binary (BCE, 6000 iterations, `classifier_v1.pt`); v2 is 3-class (CE, 12000 iterations, `classifier_v2.pt`, used everywhere). Both have equal class priors. Report validation accuracy vs $t$.
+3. Use the **logit** gradient: $g_t = \nabla_z [\log p_\phi(\text{pencil} \mid z_t) - \log p_\phi(\text{photo} \mid z_t)]$. With equal priors, an oracle logit equals $\log p_t(z \mid \text{pencil}) - \log p_t(z \mid \text{photo})$, so $-\sigma_t g_t = \varepsilon_\text{pencil}-\varepsilon_\text{photo}$, and the CG direction is $-w_\text{cat}\,\sigma_t g_t$ (the CFG target is $p(z)\,p(\text{pencil}\mid z)^{w_\text{cat}}$), which equals $d_\text{cfg}$. Oracle CG and CFG then coincide at the same $s$, and any measured gap is estimation error. For this reason CG uses no scale calibration (unlike TFG).
 4. Check (`pipeline/sd/eval_cg.py`): CFG vs CG finals at equal $s$, and per-step cos(CFG direction, CG direction) and RMS ratio.
 
 **TFG loss (decided in the cold test, see RESULTS.md).** VGG16 Gram-matrix style loss (relu1_2–relu4_3) between the TAESD-decoded clean prediction and a reference pencil drawing (the CFG $s=1$ sample of held-out seed 7). Gradients flow through the decoder, $\hat x_0$, and the UNet back to $z_t$. CLIP-based losses were tried and rejected because they were adversarial. The TFG scale is calibrated so that $s=1$ matches the median CFG guidance RMS; the usable range is $s\in[1,2]$. The result is a grayscale pencil *tone* rather than line strokes, which is accepted.
@@ -72,11 +95,21 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 - CLIP pencil score of $\hat x_0$; L2 distance to the unguided run's $\hat x_0$
 - final image (512 px)
 
-**Precompute grid** (adjust after the pilot): seeds × {none} ∪ {CG, CFG, TFG} × scales × start times. Initial target: 4–6 seeds, 3–4 scales, 3 start times (steps 0, 10, 20), about 110–220 runs.
+**Precompute grid** (`pipeline/sd/precompute.py`, decided): seeds 0–5 (7 is the TFG reference) × {none} ∪ {CFG, CG, TFG} × $s\in\{0.5,1,2\}$ × start step $\in\{0,10,20\}$, which is 28 runs per seed and 168 in total, about 55 min. The slider is $s\in\{0,0.5,1,2\}$ ($s=0$ = none) with default $s=1$, the point where oracle CG = CFG. Every step records the guided and base $\hat x_0$ (256 px) and the $z_t$ preview. CG uses classifier v2. Raw output goes to `runs/sd_grid/` (about 220 MB).
 
-**Export.** `pipeline/sd/export.py` packs each run into WebP sprite sheets (one per image stream) plus one metrics JSON per seed, and writes an `index.json` describing the grid.
+**Status (11/19): done.** The full grid ran (168 runs, 49 min) and was exported to `site/assets/sd/` (35.9 MB, not committed until the final export).
 
-**Frontend.** Seed picker; method checkboxes (side-by-side columns); scale and start-time sliders that snap to the grid; one shared time slider + play. Each column shows guided $\hat x_0$ (large), base $\hat x_0$ and $z_t$ preview (small), all clearly labeled. Metric plots below share the time axis, and hovering one sets the slider.
+**Export.** `pipeline/sd/export.py` (1–2 min, CPU) writes the following and skips incomplete runs:
+- Per run: three WebP sprite sheets, each an 8×4 grid where frames 0–29 are the steps and frame 30 is the final image. Guided $\hat x_0$ at 192 px, base $\hat x_0$ at 128 px, $z_t$ at 64 px.
+- Per seed: a metrics JSON and a thumbnail.
+- Global: `index.json`.
+
+**Frontend (`site/js/sd/sd.js`).**
+- Controls: seed thumbnails (64 px, unselected ones dimmed; default seed 2) and an $s$ segment {0, 0.5, 1, 2} (default 1). The start step {0, 10, 20} sits behind an "Advanced: guidance start" fold.
+- Four columns: No guidance (reference card, coral header), then CFG / CG / TFG (badges A/B/C). Each shows guided $\hat x_0$ large, base $\hat x_0$ and $z_t$ small, and a pencil-score bar.
+- One shared step slider + play; frame 30 is the final image.
+- Three titled step charts: "Guidance strength", "Direction match with CFG" (on the unguided path), and "Pencil score of $\hat x_0$". Clicking or dragging a chart scrubs the step.
+- URL state: `?sdseed=3&sds=2&sdstart=10&sdframe=12`.
 
 ## Section 3 — Draw an Outline (TF.js, live)
 
@@ -84,29 +117,67 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 
 **Model.** Small ε-prediction UNet (about 2–4M params): conv, GroupNorm, SiLU, sinusoidal time embedding, 2 down/up levels, optional one attention block at 8×8. Cosine VP schedule. Trained in PyTorch (a few hours in the background on the 3060).
 
+**Status (11/19).**
+- Data: `pipeline/sketch/prep_quickdraw.py` keeps 103,031 recognized cats out of 123,202, at 32×32 (`data/sketch/cat32.npy`, 45 s). Preview: `results/sketch/data_preview.png`.
+- Model: `pipeline/sketch/model.py` (`SketchUNet`, widths 32/64/128, no attention, 2.35M params). It uses only TF.js-portable ops. A width of 48/96/192 (5.3M) was too heavy for in-browser gradients.
+- Schedule: continuous cosine with $t\in[0,1]$, and the network sees $1000t$. DDIM uses $\hat x_0$ clipping.
+- Training: `pipeline/sketch/train.py`, ε-MSE, batch 256, EMA 0.9995, 60k iterations, about 1.6 h. Samples go to `results/sketch/samples_*.png`. A 1k-iteration smoke test already gives cat-like sketches.
+
 **Port to TF.js.** Re-implement the same architecture with TF.js ops (GroupNorm written manually) and load weights from an exported binary + JSON manifest. Parity test: export input/output test vectors from PyTorch and require max abs error below 1e-3 in the browser before building any UI.
 
-**Guided sampling.** DDIM, user-selectable 20–100 steps. Outline loss on $\hat x_0$ against the user's rasterized strokes $M$: blurred MSE between ink maps, $\ell = \lVert G * \mathrm{ink}(\hat x_0) - G * M \rVert^2$ (Gaussian blur $G$ gives a tolerance band; optionally multi-scale). The gradient is taken with `tf.grad` through the UNet and $\hat x_0$. Batch of 4 seeds generated together.
+**Port status (11/19).** Implemented and passing:
+- `pipeline/sketch/export_tfjs.py` writes `site/assets/sketch/{weights.bin (float32, TF.js layout, 9.4 MB), manifest.json, parity.json}` from the EMA weights.
+- `site/js/sketch/unet.js` is the TF.js UNet and schedule.
+- `site/tests/sketch_parity.html` passes on WebGL, WASM, and CPU: eps error about 2e-6, guidance-gradient relative error about 1e-6, and $\bar\alpha$ error about 5e-8. It also prints a WebGL renderer diagnostic and timings.
 
-**Views.** Drawing canvas with clear/undo/preset outlines; generation panel animating $x_t$ and $\hat x_0$ (upscaled) per step; gradient heatmap overlay (add ink / remove ink); per-step loss curve; guided vs unguided from the same seed. Controls: strength, start time, steps, seed.
+Three tfjs 4.22 pitfalls, all handled and checked by `site/tests/tfjs_grad_ops.html`:
+1. `resizeNearestNeighbor` has a wrong gradient on CPU for batch > 1, and `tile` has no rank-6 gradient. Upsampling therefore uses concat + reshape.
+2. Stride-2 conv with 'same' pads asymmetrically, so it uses an explicit symmetric pad followed by 'valid'.
+3. `tf.where`/`greater` have no gradient, so the loss weight's step function is built from `sign` (zero gradient).
+
+Re-run the export after training finishes (`python -m pipeline.sketch.export_tfjs`, seconds).
+
+**Guidance design (decided 11/19, `pipeline/sketch/guided_test.py`).**
+- Loss: weighted MSE between blurred ink maps (Gaussian σ = 1). Extra ink away from the outline has weight 0.2, so the model can still add eyes and whiskers.
+- Rejected alternatives: plain MSE only copies the outline, and a coverage-only loss scribbles ink everywhere.
+- Guidance term: $\tilde\varepsilon=\varepsilon+s\,c\,\sigma_t\nabla_x\ell(\hat x_0)$ with a fixed $c=10^4$; $s\in[0,1]$, default 0.25.
+
+**UI v1 (`site/js/sketch/sketch.js`).**
+- TF.js, weights, and the model load only when §3 scrolls into view.
+- Backend order: WebGL → WASM → CPU. A speed probe at load (one guided step at batch 2 above 400 ms) switches to light mode: batch 2 instead of 3, plus a notice.
+- Defaults: 20 steps (slider 10–50), guidance on for the first 60% of steps.
+- Display: live $\hat x_0$ per step as crisp 32×32 pixels, an unguided twin from the same noise, an outline overlay, an optional add/remove-ink overlay ($\partial\ell/\partial\hat x_0$), a loss-per-step chart, and a scrub slider after generation.
+- Pad: the card is exactly as wide as the pad (about 656 px), so the whole card is drawable. Border: 2 px dashed (brighter on hover). Strokes are shown 30% thinner than the rasterized target, which keeps the training stroke width (1.6 px at 32×32).
+- Presets: Head, Oval, Ears.
+- Measured guided step at batch 4: about 99 ms on WebGL (laptop GPU) and about 1.1 s on WASM.
+
+(The earlier plan of 20–100 steps, batch 4, and a plain blurred MSE is superseded by the decisions above.)
 
 ## Step Order
 
-| # | Dates | Step | Claude | User |
-|---|---|---|---|---|
-| 0 | 11/18–19 | Repo cleanup, env check, skeleton site, Pages workflow | all | review |
-| 1 | 11/19–22 | SD pilot: custom DDIM, CFG + TFG, small grid | code | run pilot (~15 min), pick prompts / $w_\text{cat}$ / scale ranges |
-| 1b | 11/19–22 | Quick, Draw! prep + sketch model training | code | run prep + training (background, a few hours) |
-| 2 | 11/22–25 | Section 1 toy module | all | try it, give feedback |
-| 3 | 11/19–22 | CG dataset + classifier | code | run generation (~1.2 h) and training (~30 min) |
-| 4 | 11/27–30 | Full SD precompute + export; Section 2 frontend | code | run precompute (~1.5–2 h) and export |
-| 5 | 11/30–12/4 | TF.js port + parity test; Section 3 UI | all | try it, give feedback |
-| 6 | 12/4–12/7 | Explanations and equations, README, deploy | draft | review observations, check the deployed site |
-| — | 12/8–12/9 | Buffer, presentation prep | — | — |
+| # | Planned | Step | Status (11/19) |
+|---|---|---|---|
+| 0 | 11/18–19 | Repo cleanup, env check, skeleton site | done (Pages workflow still to add) |
+| 1 | 11/19–22 | SD pilot: custom DDIM, CFG + TFG, small grid | done |
+| 1b | 11/19–22 | Quick, Draw! prep + sketch model training | prep done; training running (60k iterations) |
+| 2 | 11/22–25 | Section 1 toy module | done, revised with feedback |
+| 3 | 11/19–22 | CG dataset + classifier | done (v1 and v2) |
+| 4 | 11/27–30 | Full SD precompute + export; Section 2 frontend | done |
+| 5 | 11/30–12/4 | TF.js port + parity test; Section 3 UI | done v1; re-export final weights, then feedback |
+| 6 | 12/4–12/7 | Explanations and equations, README, deploy | next |
+| — | 12/8–12/9 | Buffer, presentation prep | — |
+
+Remaining:
+- Final sketch export once training finishes.
+- §3 feedback pass.
+- Text pass over all three sections.
+- README (including the $w_\text{cat}$ base, Quick, Draw! CC BY 4.0, and SD licenses).
+- GitHub Pages workflow.
+- Single final commit of `site/assets/`.
 
 ## Risks and Fallbacks
 
 - **CG/TFG gradients on SD look adversarial rather than stylistic.** Tune the scale range, apply guidance from a start time, and normalize the gradient. If results stay weak, present them honestly as estimation error relative to CFG.
 - **Out of memory in TFG backprop.** Use the TAESD gradient path, lower-resolution decoding for the loss, and gradient checkpointing.
 - **Site asset size.** Shrink the grid (seeds/scales), use 192 px frames, or subsample frames for the base $\hat x_0$ stream. Commit exported assets only at final export to keep git history small.
-- **TF.js speed.** Keep 32×32, fewer steps by default, and the WebGL backend; fall back to fewer seeds per batch.
+- **TF.js speed.** Handled: 32×32 with 2.35M params, 20 steps by default, guidance only on the first 60% of steps, a WASM fallback, and an automatic light mode (batch 2) when no GPU is available.

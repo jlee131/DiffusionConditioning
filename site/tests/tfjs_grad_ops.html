@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TF.js Grad Ops</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+</head>
+<body style="background:#fff">
+<pre id="out">running...</pre>
+<script type="module">
+  // Per-op gradient check: same function on the current backend vs central finite differences (float64 in JS).
+  const out = document.getElementById('out'); const L = [];
+  const log = (s) => { L.push(s); out.textContent = L.join('\n'); };
+  const backend = new URLSearchParams(location.search).get('backend') || 'cpu';
+  await tf.setBackend(backend); await tf.ready();
+  log(`backend ${tf.getBackend()}`);
+  const shape = [2, 8, 8, 4];
+  const x0 = tf.randomNormal(shape, 0, 1, 'float32', 1);
+  const wOut = (y) => tf.randomNormal(y.shape, 0, 1, 'float32', 2);
+  const k3 = tf.randomNormal([3, 3, 4, 4], 0, 0.3, 'float32', 3);
+  const cases = {
+    resizeNN: (x) => tf.image.resizeNearestNeighbor(x, [16, 16]),   // known bad on cpu for batch > 1
+    concatUp2x: (x) => {   // the up2x used in js/sketch/unet.js
+      const w2 = tf.reshape(tf.concat([x, x], 3), [2, 8, 16, 4]);
+      const flat = tf.reshape(w2, [2, 8, 64]);
+      return tf.reshape(tf.concat([flat, flat], 2), [2, 16, 16, 4]);
+    },    padConvS2: (x) => tf.conv2d(tf.pad(x, [[0, 0], [1, 1], [1, 1], [0, 0]]), k3, 2, 'valid'),
+    convSame: (x) => tf.conv2d(x, k3, 1, 'same'),
+    groupNorm: (x) => {
+      const g = tf.reshape(x, [2, 8, 8, 2, 2]);
+      const { mean, variance } = tf.moments(g, [1, 2, 4], true);
+      return tf.reshape(tf.div(tf.sub(g, mean), tf.sqrt(tf.add(variance, 1e-5))), shape);
+    },
+    silu: (x) => tf.mul(x, tf.sigmoid(x)),
+    concat: (x) => tf.concat([x, tf.mul(x, 2)], 3),
+    biasB: (x) => tf.add(x, tf.reshape(tf.matMul(tf.reshape(tf.mean(x, [1, 2]), [2, 4]), tf.eye(4)), [2, 1, 1, 4])),
+    divB: (x) => tf.div(tf.sub(x, tf.mul(tf.tensor([0.3, 0.7], [2, 1, 1, 1]), tf.sigmoid(x))), tf.tensor([0.5, 0.9], [2, 1, 1, 1])),
+  };
+  for (const [name, f] of Object.entries(cases)) {
+    const w = wOut(f(x0));
+    const loss = (x) => tf.sum(tf.mul(f(x), w));
+    const g = await tf.grad(loss)(x0).data();
+    const xs = await x0.data();
+    let worst = 0;
+    for (const i of [0, 7, 33, 200, 300, 511]) {
+      const h = 1e-2, xp = xs.slice(), xm = xs.slice(); xp[i] += h; xm[i] -= h;
+      const fd = ((await loss(tf.tensor(xp, shape)).data())[0] - (await loss(tf.tensor(xm, shape)).data())[0]) / (2 * h);
+      worst = Math.max(worst, Math.abs(fd - g[i]) / Math.max(1, Math.abs(fd)));
+    }
+    log(`${name.padEnd(10)} rel err ${worst.toExponential(2)} ${worst > 1e-2 ? '  <-- WRONG' : ''}`);
+  }
+  document.title = 'done';
+</script>
+</body>
+</html>
