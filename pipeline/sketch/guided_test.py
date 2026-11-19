@@ -7,10 +7,11 @@ with the gradient taken through x0_hat and the UNet (as in the browser). Losses 
 c is calibrated once per loss: c = 1 / median_t rms(sigma_t grad) on an unguided probe, so s = 1 means a guidance
 term about as large as the noise prediction (rms 1).
 
-Output: results/sketch/guided_{loss}.png (rows: outline, unguided, s values; 8 seeds), printed calibration constants
-Usage:  python -m pipeline.sketch.guided_test [--steps 20] [--frac 0.6]
+Output: results/{run}/guided_{outline}_{loss}.png (rows: outline, unguided, s values; 8 seeds), calibration constants
+Usage:  python -m pipeline.sketch.guided_test [--run sketch] [--steps 20] [--frac 0.6] [--kinds mse_w] [--scales ...]
 """
 import argparse
+import math
 import statistics
 
 import numpy as np
@@ -19,18 +20,18 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
 from ..sd.models import ROOT
-from .model import SketchUNet, alpha_sigma
+from .model import alpha_sigma, load_sketch_model
 
 DEVICE = "cuda"
-RESULTS = ROOT / "results" / "sketch"
 
 
 def outline_cat_head(size=32, ss=4):
     im = Image.new("L", (size * ss, size * ss), 0)
     d = ImageDraw.Draw(im)
     w = round(1.6 * ss)
-    s = lambda pts: [(x * ss, y * ss) for x, y in pts]  # noqa: E731
-    d.ellipse([6 * ss, 9 * ss, 26 * ss, 28 * ss], outline=255, width=w)
+    k = ss * size / 32                         # outline coordinates are given on a 32 grid
+    s = lambda pts: [(x * k, y * k) for x, y in pts]  # noqa: E731
+    d.ellipse([6 * k, 9 * k, 26 * k, 28 * k], outline=255, width=w)
     d.line(s([(8, 13), (9, 3), (14, 9.5)]), fill=255, width=w, joint="curve")
     d.line(s([(18, 9.5), (23, 3), (24, 13)]), fill=255, width=w, joint="curve")
     return np.asarray(im.resize((size, size), Image.LANCZOS), np.float32) / 255
@@ -40,7 +41,8 @@ def outline_body(size=32, ss=4):
     im = Image.new("L", (size * ss, size * ss), 0)
     d = ImageDraw.Draw(im)
     w = round(1.6 * ss)
-    d.ellipse([4 * ss, 12 * ss, 28 * ss, 29 * ss], outline=255, width=w)
+    k = ss * size / 32
+    d.ellipse([4 * k, 12 * k, 28 * k, 29 * k], outline=255, width=w)
     return np.asarray(im.resize((size, size), Image.LANCZOS), np.float32) / 255
 
 
@@ -50,13 +52,14 @@ def gaussian_kernel(sigma=1.0, r=2):
     return (k / k.sum())[None, None].to(DEVICE)
 
 
-def make_loss(kind, M):
-    G = gaussian_kernel()
-    m = F.conv2d(M, G, padding=2)
+def make_loss(kind, M, sigma=1.0):
+    r = math.ceil(2 * sigma)
+    G = gaussian_kernel(sigma, r)
+    m = F.conv2d(M, G, padding=r)
 
     def loss(x0):
         ink = (x0.clamp(-1, 1) + 1) / 2
-        i = F.conv2d(ink, G, padding=2)
+        i = F.conv2d(ink, G, padding=r)
         if kind == "mse":
             return ((i - m) ** 2).mean(dim=(1, 2, 3))
         if kind == "mse_w":   # extra ink away from the outline costs only 20% (room for eyes, whiskers)
@@ -67,14 +70,15 @@ def make_loss(kind, M):
 
 
 def guided_sample(model, loss_fn, n, steps, frac, s, c, seed):
+    size = model.config.get("size", 32)
     g = torch.Generator(device=DEVICE).manual_seed(seed)
-    x = torch.randn(n, 1, 32, 32, device=DEVICE, generator=g)
+    x = torch.randn(n, 1, size, size, device=DEVICE, generator=g)
     ts = torch.linspace(1, 0, steps + 1, device=DEVICE)
     rms_log = []
     for k in range(steps):
         t, tp = ts[k].expand(n), ts[k + 1].expand(n)
-        a, sg = (v[:, None, None, None] for v in alpha_sigma(t))
-        ap, sp = (v[:, None, None, None] for v in alpha_sigma(tp))
+        a, sg = (v[:, None, None, None] for v in alpha_sigma(t, size))
+        ap, sp = (v[:, None, None, None] for v in alpha_sigma(tp, size))
         guided = k < round(frac * steps)
         with torch.enable_grad():
             xg = x.detach().requires_grad_(guided)
@@ -94,10 +98,12 @@ def guided_sample(model, loss_fn, n, steps, frac, s, c, seed):
     return x, rms_log
 
 
-def to_img(x, scale=3):
+def to_img(x, scale=None):
     ink = ((x.clamp(-1, 1) + 1) / 2 * 255).round().byte().cpu().numpy()[:, 0]
+    S = ink.shape[-1]
+    scale = scale or max(1, 96 // S)
     row = np.concatenate(list(ink), axis=1)
-    return Image.fromarray(255 - row).resize((row.shape[1] * scale, 32 * scale), Image.NEAREST)
+    return Image.fromarray(255 - row).resize((row.shape[1] * scale, S * scale), Image.NEAREST)
 
 
 def main():
@@ -105,22 +111,23 @@ def main():
     ap.add_argument("--steps", type=int, default=20)
     ap.add_argument("--frac", type=float, default=0.6)
     ap.add_argument("--n", type=int, default=8)
+    ap.add_argument("--run", default="sketch", help="runs/<run>/ckpt.pt, results/<run>/")
     ap.add_argument("--kinds", nargs="+", default=["mse", "mse_w", "coverage"])
     ap.add_argument("--scales", type=float, nargs="+", default=[0.1, 0.25, 0.5, 1.0])
     args = ap.parse_args()
-    ck = torch.load(ROOT / "runs" / "sketch" / "ckpt.pt", map_location=DEVICE, weights_only=True)
-    model = SketchUNet(**{k: tuple(v) if k == "ch" else v for k, v in ck["config"].items()}).to(DEVICE)
-    model.load_state_dict(ck["ema"])
-    model.eval().requires_grad_(False)
-    print(f"checkpoint step {ck['step']}")
+    model, ck = load_sketch_model(ROOT / "runs" / args.run / "ckpt.pt", DEVICE)
+    size = model.config.get("size", 32)
+    results = ROOT / "results" / args.run
+    results.mkdir(parents=True, exist_ok=True)
+    print(f"checkpoint step {ck['step']}, {size}x{size}")
 
-    for name, outline in [("head", outline_cat_head()), ("body", outline_body())]:
-        M = torch.tensor(outline, device=DEVICE)[None, None].expand(args.n, 1, 32, 32)
+    for name, outline in [("head", outline_cat_head(size)), ("body", outline_body(size))]:
+        M = torch.tensor(outline, device=DEVICE)[None, None].expand(args.n, 1, size, size)
         for kind in args.kinds:
-            loss_fn = make_loss(kind, M)
+            loss_fn = make_loss(kind, M, sigma=size / 32)
             _, rms = guided_sample(model, loss_fn, args.n, args.steps, args.frac, 0.0, 1.0, seed=0)
             c = 1.0 / statistics.median(rms)
-            rows = [to_img(torch.tensor(outline)[None, None].expand(args.n, 1, 32, 32) * 2 - 1)]
+            rows = [to_img(torch.tensor(outline)[None, None].expand(args.n, 1, size, size) * 2 - 1)]
             labels = ["outline", "s=0"]
             rows.append(to_img(guided_sample(model, loss_fn, args.n, args.steps, args.frac, 0.0, c, 0)[0]))
             for s in args.scales:
@@ -134,7 +141,7 @@ def main():
             for r, (im, lab) in enumerate(zip(rows, labels)):
                 sheet.paste(im, (150, r * H))
                 dr.text((4, r * H + H // 2 - 6), lab, fill="black")
-            sheet.save(RESULTS / f"guided_{name}_{kind}.png")
+            sheet.save(results / f"guided_{name}_{kind}.png")
             print(f"{name:5s} {kind:9s} c = {c:.4g}  (median rms sigma*grad = {1 / c:.3g})")
 
 

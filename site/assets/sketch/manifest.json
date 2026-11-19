@@ -6,9 +6,15 @@
    128
   ],
   "tdim": 128,
-  "dropout": 0.1
+  "dropout": 0.1,
+  "size": 32
  },
- "step": 10000,
+ "step": 60000,
+ "guide": {
+  "c": 10000.0,
+  "s": 0.25,
+  "blur_sigma": 1.0
+ },
  "tensors": [
   {
    "name": "temb.0.weight",

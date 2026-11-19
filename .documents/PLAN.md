@@ -31,7 +31,9 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 - Method colors: CFG sky, CG coral, TFG lavender.
 - Spacing: large hero spacing, and sections separated by a divider with 88 px above and below.
 
-`?style=default` shows the saved v1 design (`main.css` alone). Canvas modules redraw on a `themechange` event and after web fonts load.
+`?style=default` shows the saved v1 design (`main.css` alone). Canvas modules redraw on a `themechange` event and after web fonts load. Two theme tokens are read by the canvases and the pad:
+- `--density`: tint of the toy density heatmap, soft sky `#7CC3E6` in light mode and `#DCE3EB` in dark mode (main.css falls back to ink).
+- `--pad-cursor`: the custom crosshair for the drawing pad.
 
 ## Shared Conventions
 
@@ -69,7 +71,7 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 - The six layer checkboxes sit behind a "Display settings" fold, and the hover readout plus the CG=CFG badge sit behind a "Field values" fold.
 - With CG or CFG selected, the classifier contours $p_t(\text{pencil}\mid x)=0.25/0.5/0.75$ are drawn as soft coral bands (4/6/8 px, growing with the level), so the guidance arrows visibly cross them at right angles. With any guidance on, the base-score arrows fade to 30% opacity.
 - Defaults: method CG, Estimated model ($\kappa=0.5$), $s=1.5$, $\hat x_0$ rings off (the legend entry hides with them), and starting frame 50/80 ($t\approx0.38$), where contours and guidance are visible.
-- The chart is titled "Pencil fraction vs. guidance scale" (TFG mode: "Distance to TFG target vs. guidance scale"). Its series and captions use the method colors.
+- The chart is titled "Pencil fraction vs. guidance scale" (TFG mode: "Distance to TFG target vs. guidance scale"). Its series and captions use the method colors. The chart sweep (about 0.5 s) runs in chunks that yield between scales, and a newer request cancels an older one, so the page never freezes.
 
 ## Section 2 — Stable Diffusion (offline precompute)
 
@@ -123,6 +125,20 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 - Schedule: continuous cosine with $t\in[0,1]$, and the network sees $1000t$. DDIM uses $\hat x_0$ clipping.
 - Training: `pipeline/sketch/train.py`, ε-MSE, batch 256, EMA 0.9995, 60k iterations, about 1.6 h. Samples go to `results/sketch/samples_*.png`. A 1k-iteration smoke test already gives cat-like sketches.
 
+**v2 model (decided 11/19): 64×64, detailed drawings only.** v1 (32×32, all drawings) reproduced the doodle level of the data, and the simplest drawings have no face at all.
+- Data: `prep_quickdraw --size 64 --min-strokes 9` keeps 59,956 cats with ≥ 9 strokes (`data/sketch/cat64_s9.npy`). The stroke width stays 1.6 px and the margin is size/16.
+- Model: `SketchUNet` is now generic in the number of levels. v2 uses widths 32/48/96/128 (4 levels, 3.02M params, `size=64`); the v1 checkpoint still loads.
+- Schedule: the log-SNR is shifted by $2\log(32/64)$ for 64×64 (Hoogeboom et al.); $\alpha$/$\sigma$ take `size`.
+- Training: `train --data cat64_s9 --run sketch64 --ch 32 48 96 128 --batch 128`, 60k iterations, about 2.6 h, written to `runs/sketch64/` and `results/sketch64/`.
+- Other datasets considered (Sketchy, TU-Berlin, AFHQ→line art, SD-generated line art): either too few cats or not clean line drawings at 64 px (see RESULTS.md).
+- Browser side, ready for any size:
+  - `unet.js` reads the number of levels from the weights and applies the schedule shift via `alphaSigma(t, size)`.
+  - `export_tfjs.py --ckpt … --out sketch64 --guide-c …` writes `manifest.guide = {c, s, blur_sigma}` (blur σ defaults to size/32).
+  - `sketch.js` takes size, c, default s, and blur from the manifest. `?skmodel=sketch64` selects a model folder, and the default stays `sketch` (v1) until v2 is final.
+  - Light mode for 64 px: 1 sample, 15 steps.
+- **Done (11/19).** Trained 60k iterations in 156 min (final loss 0.024). Exported with `--out sketch64 --guide-c 5e4 --guide-s 0.25`; `sketch64` is now the site default (v1 remains available as `?skmodel=sketch`). Parity passes on WebGL and WASM (ε about 5e-6).
+- Checks: parity passes for both models (WebGL/CPU). With the 1k-step smoke model, `guided_test --run sketch64_smoke` gives c ≈ 4.3e4 (about 4× the 32 px value, from the per-pixel mean in the loss); recalibrate on the final model.
+
 **Port to TF.js.** Re-implement the same architecture with TF.js ops (GroupNorm written manually) and load weights from an exported binary + JSON manifest. Parity test: export input/output test vectors from PyTorch and require max abs error below 1e-3 in the browser before building any UI.
 
 **Port status (11/19).** Implemented and passing:
@@ -143,13 +159,18 @@ Re-run the export after training finishes (`python -m pipeline.sketch.export_tfj
 - Guidance term: $\tilde\varepsilon=\varepsilon+s\,c\,\sigma_t\nabla_x\ell(\hat x_0)$ with a fixed $c=10^4$; $s\in[0,1]$, default 0.25.
 
 **UI v1 (`site/js/sketch/sketch.js`).**
-- TF.js, weights, and the model load only when §3 scrolls into view.
-- Backend order: WebGL → WASM → CPU. A speed probe at load (one guided step at batch 2 above 400 ms) switches to light mode: batch 2 instead of 3, plus a notice.
-- Defaults: 20 steps (slider 10–50), guidance on for the first 60% of steps.
-- Display: live $\hat x_0$ per step as crisp 32×32 pixels, an unguided twin from the same noise, an outline overlay, an optional add/remove-ink overlay ($\partial\ell/\partial\hat x_0$), a loss-per-step chart, and a scrub slider after generation.
-- Pad: the card is exactly as wide as the pad (about 656 px), so the whole card is drawable. Border: 2 px dashed (brighter on hover). Strokes are shown 30% thinner than the rasterized target, which keeps the training stroke width (1.6 px at 32×32).
-- Presets: Head, Oval, Ears.
-- Measured guided step at batch 4: about 99 ms on WebGL (laptop GPU) and about 1.1 s on WASM.
+- Loading: TF.js, weights, and the model start loading once §3 is within 600 px of the viewport and the browser is idle (`requestIdleCallback`, 2 s cap). A loading bar shows the stages: TF.js, weight download (byte progress), compiling the guided and plain kernels, and measuring speed.
+- Backend order: WebGL → WASM → CPU. Light mode is decided by hardware: a WASM/CPU backend or a software WebGL renderer (SwiftShader, Basic Render, llvmpipe, WARP). It is not decided by timing, because a cold first run on a real GPU used to trigger the warning by mistake. Light mode shows a notice and uses 1 sample and 15 steps for 64 px (2 samples at 32 px); with a GPU, 3 samples.
+- Warm-up: one guided and one plain step at the batch actually used. TF.js compiles WebGL shaders per tensor shape, so the user's first Generate stays fast.
+- Step implementation (`ddimStep`): the guided chain and its unguided twin are stacked into one batch, giving one UNet call per step. The loss uses only the guided half, so the twin gets zero gradient. Results come back in one GPU→CPU read per step: x̂₀ (guided and twin), ∂ℓ/∂x̂₀ on guided steps, and both losses. Against the first version this took a 64 px generation on the laptop GPU from 19.4 s to 7.2 s.
+- Defaults: 20 steps (slider 10–50), guidance on for the first 60% of steps. Starting noise is #1 with a GPU and #63471 in light mode (picked from #1 / #933569 / #63471 with the Head preset). `?skseed=N` overrides it, and `?skauto` starts a generation (both for tests).
+- Display: live $\hat x_0$ per step as crisp pixels, an unguided twin from the same noise, an outline overlay, and the add/remove-ink overlay ($\partial\ell/\partial\hat x_0$, coral = more ink, blue = less ink). The overlay is on by default and labelled "show what the loss asks for" with color keys. Also a loss-per-step chart and a scrub slider after generation. Result cards are left-aligned. The final status reads only "Done in X s · scrub the slider to replay".
+- Pad: the card is exactly as wide as the pad (about 656 px), so the whole card is drawable. Border: 2 px dashed (brighter on hover). Undo and clear are icon buttons (↶, ⟳). The theme draws its own crosshair cursor, dark with a light halo (reversed in dark mode), because the Windows crosshair is drawn inverted and could turn white on the light pad. Strokes are shown 30% thinner than the rasterized target, which keeps the training stroke width (1.6 px).
+- Presets: Head, Oval, Ears. Next to the intro, a small example result (`assets/sketch64/example_cat.png`) is captioned "Made on this page."
+- Measured on the laptop (AMD Radeon integrated GPU), batch 4:
+  - v1 (32 px): guided step 99 ms (WebGL), 1.1 s (WASM).
+  - v2 (64 px): plain step 117 ms, guided step 366 ms (WebGL).
+  - Full generations: 7.2 s with a GPU; 15.9 s in light mode (WASM, 1 sample, 15 steps).
 
 (The earlier plan of 20–100 steps, batch 4, and a plain blurred MSE is superseded by the decisions above.)
 
@@ -157,9 +178,9 @@ Re-run the export after training finishes (`python -m pipeline.sketch.export_tfj
 
 | # | Planned | Step | Status (11/19) |
 |---|---|---|---|
-| 0 | 11/18–19 | Repo cleanup, env check, skeleton site | done (Pages workflow still to add) |
+| 0 | 11/18–19 | Repo cleanup, env check, skeleton site | done (Pages workflow added) |
 | 1 | 11/19–22 | SD pilot: custom DDIM, CFG + TFG, small grid | done |
-| 1b | 11/19–22 | Quick, Draw! prep + sketch model training | prep done; training running (60k iterations) |
+| 1b | 11/19–22 | Quick, Draw! prep + sketch model training | done (60k iterations, 94 min; final weights exported) |
 | 2 | 11/22–25 | Section 1 toy module | done, revised with feedback |
 | 3 | 11/19–22 | CG dataset + classifier | done (v1 and v2) |
 | 4 | 11/27–30 | Full SD precompute + export; Section 2 frontend | done |
@@ -168,12 +189,12 @@ Re-run the export after training finishes (`python -m pipeline.sketch.export_tfj
 | — | 12/8–12/9 | Buffer, presentation prep | — |
 
 Remaining:
-- Final sketch export once training finishes.
-- §3 feedback pass.
-- Text pass over all three sections.
-- README (including the $w_\text{cat}$ base, Quick, Draw! CC BY 4.0, and SD licenses).
-- GitHub Pages workflow.
-- Single final commit of `site/assets/`.
+- Text pass over all three sections (and the README wording).
+- Enable Pages (Settings → Pages → Source: GitHub Actions) and commit `site/assets/sketch64/` with the rest; `.github/workflows/pages.yml` then deploys `site/` on every push to `main` that touches it.
+- Check the deployed site on a phone and on a machine without a GPU.
+- Presentation prep.
+
+Done: README (w_cat base, reproduction commands, Quick, Draw! CC BY 4.0, SD license), Pages workflow.
 
 ## Risks and Fallbacks
 

@@ -37,7 +37,8 @@ let C = {};
 function readColors() {
   C = { ink: css('--ink'), muted: css('--muted'), line: css('--line'), accent: css('--accent'), photo: css('--photo'),
     pencil: css('--pencil'), base: css('--base'), total: css('--total'), card: css('--card'),
-    mcg: css('--m-cg'), mcfg: css('--m-cfg'), mtfg: css('--m-tfg') };
+    mcg: css('--m-cg'), mcfg: css('--m-cfg'), mtfg: css('--m-tfg'),
+    density: css('--density') };   // density heatmap tint (theme-sky); falls back to ink
 }
 
 // ---------------------------------------------------------------- model --
@@ -122,7 +123,7 @@ function drawHeat(t) {
       if (v > vmax) vmax = v;
     }
   }
-  const ink = rgb(C.ink), ph = rgb(C.photo), pe = rgb(C.pencil), ac = rgb(C.accent);
+  const ink = rgb(C.density || C.ink), ph = rgb(C.photo), pe = rgb(C.pencil), ac = rgb(C.accent);
   for (let k = 0; k < vals.length; k++) {
     let r, g, b, a;
     if (mode === 'density' || mode === 'target') {
@@ -454,31 +455,34 @@ function updateBadge(t) {
 }
 
 // ---------------------------------------------------------------- chart --
-let chartData = null;
-function computeChart() {
+let chartData = null, chartJob = 0;
+// The sweep (21 scales x 1-2 methods x 200 particles x 40 steps, about 0.5 s) runs in small chunks and yields to the
+// browser between scales, so it never freezes the page; a newer request cancels an older one.
+async function computeChart() {
+  const job = ++chartJob;
   const ss = []; for (let s = 0; s <= 5.0001; s += 0.25) ss.push(+s.toFixed(2));
-  if (state.method === 'tfg') {
-    const dist = ss.map((s) => {
-      const fr = simulate(model, { method: 'tfg', scale: s, tStart: state.tStart, nSteps: 40 }, chartNoise);
-      const last = fr[fr.length - 1];
-      let d = 0;
-      for (let i = 0; i < last.x.length; i++) d += Math.hypot(last.x[i] - model.target[0], last.y[i] - model.target[1]);
-      return d / last.x.length;
-    });
-    chartData = { kind: 'tfg', ss, series: [{ name: 'TFG', vals: dist, color: C.mtfg, dash: [] }] };
-  } else {
-    const frac = (method) => ss.map((s) => {
+  const methods = state.method === 'tfg' ? ['tfg'] : ['cg', 'cfg'];
+  const vals = methods.map(() => []);
+  for (const s of ss) {
+    methods.forEach((method, j) => {
       const fr = simulate(model, { method, scale: s, tStart: state.tStart, nSteps: 40 }, chartNoise);
       const last = fr[fr.length - 1];
-      let k = 0;
-      for (let i = 0; i < last.x.length; i++) k += labelOf(model.comps, last.x[i], last.y[i]) > 0.5 ? 1 : 0;
-      return k / last.x.length;
+      let acc = 0;
+      for (let i = 0; i < last.x.length; i++) {
+        acc += method === 'tfg' ? Math.hypot(last.x[i] - model.target[0], last.y[i] - model.target[1])
+          : (labelOf(model.comps, last.x[i], last.y[i]) > 0.5 ? 1 : 0);
+      }
+      vals[j].push(acc / last.x.length);
     });
-    chartData = { kind: 'frac', ss, series: [
-      { name: 'CG', vals: frac('cg'), color: C.mcg, dash: [] },
-      { name: 'CFG', vals: frac('cfg'), color: C.mcfg, dash: [6, 4] },
-    ] };
+    await new Promise((r) => setTimeout(r, 0));
+    if (job !== chartJob) return;          // superseded by a newer request
   }
+  chartData = methods[0] === 'tfg'
+    ? { kind: 'tfg', ss, series: [{ name: 'TFG', vals: vals[0], color: C.mtfg, dash: [] }] }
+    : { kind: 'frac', ss, series: [
+      { name: 'CG', vals: vals[0], color: C.mcg, dash: [] },
+      { name: 'CFG', vals: vals[1], color: C.mcfg, dash: [6, 4] },
+    ] };
   drawChart();
 }
 let chartTimer = null;

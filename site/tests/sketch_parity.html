@@ -16,7 +16,7 @@
 <body>
 <h1>Sketch UNet parity (TF.js vs PyTorch)</h1>
 <p>Pass criterion: max abs error below 1e-3 for eps and for the guidance gradient.
-  Backend order: WebGL, then WASM, then CPU. Force one with <code>?backend=webgl|wasm|cpu</code>.</p>
+  Backend order: WebGL, then WASM, then CPU. Force one with <code>?backend=webgl|wasm|cpu</code>; pick a model with <code>?model=sketch64</code>.</p>
 <pre id="out">starting...</pre>
 <script type="module">
   import { alphaBar, alphaSigma, loadWeights, unet } from '../js/sketch/unet.js';
@@ -49,16 +49,18 @@
 
     await step('loading parity vectors and weights (9.4 MB)');
     let t0 = performance.now();
-    const P = await fetch('../assets/sketch/parity.json').then((r) => r.json());
-    const { W, step: ckStep } = await loadWeights('../assets/sketch/');
-    log(`weights: step ${ckStep}, loaded in ${ms(t0)}`);
+    const model = new URLSearchParams(location.search).get('model') || 'sketch';
+    const P = await fetch(`../assets/${model}/parity.json`).then((r) => r.json());
+    const S = P.size || 32;
+    const { W, step: ckStep } = await loadWeights(`../assets/${model}/`);
+    log(`weights: ${model}, step ${ckStep}, ${S}x${S}, loaded in ${ms(t0)}`);
 
-    const abErr = Math.max(...P.ab_t.map((t, i) => Math.abs(alphaBar(t) - P.ab[i])));
+    const abErr = Math.max(...P.ab_t.map((t, i) => Math.abs(alphaBar(t, S) - P.ab[i])));
     log(`alpha_bar max abs err: ${abErr.toExponential(2)}`);
 
     await step('forward pass (batch 2)');
     const B = P.t.length;
-    const x = tf.tensor(P.x, [B, 32, 32, 1]);
+    const x = tf.tensor(P.x, [B, S, S, 1]);
     const t = tf.tensor(P.t);
     t0 = performance.now();
     const epsArr = await unet(W, x, t).data();
@@ -66,9 +68,9 @@
     log(`eps  max abs err: ${epsErr.toExponential(2)}   (first forward incl. warm-up: ${ms(t0)})`);
 
     await step('gradient through x0_hat and the UNet (batch 2)');
-    const as = P.t.map(alphaSigma);
+    const as = P.t.map((tt) => alphaSigma(tt, S));
     const a = tf.tensor(as.map((v) => v[0]), [B, 1, 1, 1]), s = tf.tensor(as.map((v) => v[1]), [B, 1, 1, 1]);
-    const target = tf.tensor(P.target, [B, 32, 32, 1]);
+    const target = tf.tensor(P.target, [B, S, S, 1]);
     const lossFn = (xx) => tf.mean(tf.square(tf.sub(tf.div(tf.sub(xx, tf.mul(s, unet(W, xx, t))), a), target)));
     t0 = performance.now();
     const { value, grad } = tf.valueAndGrad(lossFn)(x);
@@ -83,8 +85,8 @@
     log(ok ? '<span class="pass">PASS</span> (accuracy)' : '<span class="fail">FAIL</span> (accuracy)');
 
     await step('timing: plain step and guided step, batch 4 (after warm-up)');
-    const x4 = tf.randomNormal([4, 32, 32, 1]), t4 = tf.fill([4], 0.5);
-    const a4 = tf.fill([4, 1, 1, 1], alphaSigma(0.5)[0]), s4 = tf.fill([4, 1, 1, 1], alphaSigma(0.5)[1]);
+    const x4 = tf.randomNormal([4, S, S, 1]), t4 = tf.fill([4], 0.5);
+    const a4 = tf.fill([4, 1, 1, 1], alphaSigma(0.5, S)[0]), s4 = tf.fill([4, 1, 1, 1], alphaSigma(0.5, S)[1]);
     const f4 = (xx) => tf.mean(tf.square(tf.div(tf.sub(xx, tf.mul(s4, unet(W, xx, t4))), a4)));
     await unet(W, x4, t4).data();
     await tf.grad(f4)(x4).data();

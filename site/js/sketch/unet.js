@@ -2,30 +2,52 @@
 // Weights come from pipeline/sketch/export_tfjs.py, already in TF.js layout (NHWC, HWIO conv filters).
 
 const S_COS = 0.008;
+const clamp = (v) => Math.min(1 - 1e-5, Math.max(1e-5, v));
 
 // ---------------------------------------------------------------- schedule --
-export function alphaBar(t) {
+// Cosine schedule; for size > 32 the log-SNR is shifted by 2 log(32 / size) (same as model.py).
+export function alphaBar(t, size = 32) {
   const f = (u) => Math.cos(((u + S_COS) / (1 + S_COS)) * Math.PI / 2) ** 2;
-  return Math.min(1 - 1e-5, Math.max(1e-5, f(t) / f(0)));
+  let ab = clamp(f(t) / f(0));
+  if (size !== 32) {
+    const logit = Math.log(ab / (1 - ab)) + 2 * Math.log(32 / size);
+    ab = clamp(1 / (1 + Math.exp(-logit)));
+  }
+  return ab;
 }
-export function alphaSigma(t) {
-  const ab = alphaBar(t);
+export function alphaSigma(t, size = 32) {
+  const ab = alphaBar(t, size);
   return [Math.sqrt(ab), Math.sqrt(1 - ab)];
 }
 
 // ------------------------------------------------------------------ weights --
-export async function loadWeights(base) {
-  const [manifest, buf] = await Promise.all([
-    fetch(`${base}manifest.json`).then((r) => r.json()),
-    fetch(`${base}weights.bin`).then((r) => r.arrayBuffer()),
-  ]);
+// onProgress(fraction in [0, 1]) is called while weights.bin downloads (if the server sends Content-Length)
+export async function loadWeights(base, onProgress = null) {
+  const manifest = await fetch(`${base}manifest.json`).then((r) => r.json());
+  const res = await fetch(`${base}weights.bin`);
+  const total = +res.headers.get('Content-Length') || 0;
+  let buf;
+  if (onProgress && total && res.body) {
+    const bytes = new Uint8Array(total);
+    const reader = res.body.getReader();
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes.set(value, got); got += value.length;
+      onProgress(got / total);
+    }
+    buf = bytes.buffer;
+  } else {
+    buf = await res.arrayBuffer();
+  }
   const all = new Float32Array(buf);
   const W = {};
   for (const { name, shape, offset } of manifest.tensors) {
     const n = shape.reduce((a, b) => a * b, 1);
     W[name] = tf.tensor(all.subarray(offset, offset + n), shape, 'float32');
   }
-  return { W, config: manifest.config, step: manifest.step };
+  return { W, config: { size: 32, ...manifest.config }, guide: manifest.guide || null, step: manifest.step };
 }
 
 // ---------------------------------------------------------------------- ops --
@@ -79,24 +101,24 @@ function up2x(x) {
 }
 
 // ------------------------------------------------------------------- model --
-// x: (B, 32, 32, 1) NHWC in [-1, 1] space; t: (B,) tensor in [0, 1]. Returns predicted eps (B, 32, 32, 1).
+// x: (B, S, S, 1) NHWC in [-1, 1] space; t: (B,) tensor in [0, 1]. Returns predicted eps (B, S, S, 1).
+// The number of levels L is read from the weights (d0.., d{L-1}), matching model.py for any L.
 export function unet(W, x, t) {
+  let L = 0;
+  while (W[`d${L}.0.n1.weight`]) L++;
   let temb = dense(timestepEmbedding(t), W, 'temb.0');
   temb = dense(silu(temb), W, 'temb.2');
   let h = conv(x, W, 'stem');
-  h = resBlock(h, temb, W, 'd0.0'); h = resBlock(h, temb, W, 'd0.1');
-  const s0 = h;
-  h = conv(h, W, 'down0', 2);
-  h = resBlock(h, temb, W, 'd1.0'); h = resBlock(h, temb, W, 'd1.1');
-  const s1 = h;
-  h = conv(h, W, 'down1', 2);
-  h = resBlock(h, temb, W, 'd2.0'); h = resBlock(h, temb, W, 'd2.1');
-  const s2 = h;
+  const skips = [];
+  for (let i = 0; i < L; i++) {
+    h = resBlock(h, temb, W, `d${i}.0`); h = resBlock(h, temb, W, `d${i}.1`);
+    skips.push(h);
+    if (i < L - 1) h = conv(h, W, `down${i}`, 2);
+  }
   h = resBlock(h, temb, W, 'mid.0'); h = resBlock(h, temb, W, 'mid.1');
-  h = resBlock(tf.concat([h, s2], 3), temb, W, 'u2');
-  h = conv(up2x(h), W, 'up2');
-  h = resBlock(tf.concat([h, s1], 3), temb, W, 'u1');
-  h = conv(up2x(h), W, 'up1');
-  h = resBlock(tf.concat([h, s0], 3), temb, W, 'u0');
+  for (let i = L - 1; i >= 0; i--) {
+    h = resBlock(tf.concat([h, skips[i]], 3), temb, W, `u${i}`);
+    if (i > 0) h = conv(up2x(h), W, `up${i}`);
+  }
   return conv(silu(groupNorm(h, W['out_norm.weight'], W['out_norm.bias'])), W, 'out');
 }

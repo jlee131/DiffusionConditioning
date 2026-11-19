@@ -100,3 +100,50 @@ The best range is $s\approx0.1$–$0.25$ (with $c=10^4$); $s\ge0.5$ mostly repro
 | laptop, hardware acceleration off (WASM) | 113 ms | 1128 ms |
 
 At default settings this means about 2 s per generation with a GPU, and about 7 s in light mode (batch 2) without one.
+
+**Final model (60k iterations, 94 min, final loss 0.067).**
+- Samples (`samples_060000.png`) are close to the 50k ones; training converged.
+- The weights are exported to `site/assets/sketch/`. Browser parity still passes (ε 3.6e-6, gradient relative error 1.5e-6).
+- Re-running `guided_test` with the final model reproduces the 10k findings. The calibration is stable: $1/\mathrm{median\,rms}(\sigma\nabla\ell)$ is 7.5k for the head outline and 12k for the oval, so the fixed $c=10^4$ and the default $s=0.25$ stay as they are. $s=0.1$ gives more varied faces; $s\ge0.5$ mostly traces the outline.
+
+## 2026-11-19 — Sketch model v2: 64×64, detailed drawings only
+
+**Why.** v1 reproduced the doodle level of Quick, Draw!. Simple drawings (≤ 4 strokes) have no face, and at 32×32 eyes and whiskers shrink to 1–2 px.
+
+**Data check.** The median stroke count is 9, and 58% of drawings have ≥ 9 strokes; at 64 px these show eyes, nose, and whiskers. Alternatives were rejected:
+- Sketchy has 500–800 sketches per category, and TU-Berlin about 80; both are too few to train from scratch.
+- AFHQ cat photos converted to line art keep fur texture and need an extra model.
+- An SD 1.5 line-art pilot (3 prompts × 8 images) produced gray backgrounds, frames, filled areas, and dense patterns, which turn into noise at 64 px.
+
+**v2.** 59,956 cats with ≥ 9 strokes at 64×64. The UNet has 4 levels, widths 32/48/96/128, and 3.02M params. The cosine schedule's log-SNR is shifted by $2\log(32/64)$. Training: 60k iterations, batch 128, 156 min, final loss 0.024. Samples (`results/sketch64/samples_060000.png`) are visibly richer than v1: most have a face, whiskers, and ears.
+
+**Guidance at 64 px** (`guided_test --run sketch64`, blur σ = 2 px):
+- Calibration: $1/\mathrm{median\,rms}(\sigma\nabla\ell)$ is 4.4e4 for the head and 6.7e4 for the oval. It is about 4× the 32 px value because the loss averages over 4× more pixels. Chosen: $c = 5\times10^4$, default $s = 0.25$.
+- Head outline: faces with eyes and whiskers inside the outline at $s = 0.1$–$0.25$.
+- Oval outline: ears and whiskers appear around it, though strokes are sometimes fragmented.
+
+**Cost.** Forward + backward per image is 3.81 GFLOP vs 1.34 for v1 (2.85×). Projected from the laptop measurement for v1 (99 ms per guided step at batch 4):
+- GPU: one 20-step generation of 3 samples takes about 5 s (v1: about 2 s).
+- No-GPU light mode (WASM, 1 sample, 15 steps): about 13 s.
+
+## 2026-11-19 — Section 3 in the browser: speed and defaults (64 px model)
+
+**Measured on the laptop** (AMD Radeon integrated GPU, Chrome/Edge; parity page at batch 4):
+
+| | plain step | guided step | full generation |
+|---|---|---|---|
+| WebGL, first UI version | — | — | 19.4 s (3 samples, 20 steps) |
+| WebGL, after the fixes below | 117 ms | 366 ms | **7.2 s** |
+| WASM light mode (1 sample, 15 steps) | — | — | 15.9 s |
+
+The 19.4 s was mostly overhead rather than compute. Three fixes:
+1. A warm-up at the real batch size, because TF.js compiles WebGL shaders per tensor shape.
+2. One UNet call per step on the stacked [guided; unguided twin] batch instead of two calls.
+3. One GPU→CPU read per step instead of five.
+
+The light-mode warning had appeared on GPUs because a cold first run was timed. Light mode is now decided from the backend and renderer instead.
+
+**Light-mode starting noise.** With the Head preset, 1 sample, and 15 steps:
+- #1: faint, no face.
+- #933569: face, plus a stray stroke.
+- #63471: clean head with eyes, nose, mouth, and whiskers. Chosen as the light-mode default; the GPU default stays #1.

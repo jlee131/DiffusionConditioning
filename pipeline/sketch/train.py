@@ -3,9 +3,10 @@
 eps-prediction MSE, t ~ U(0, 1) with the cosine schedule, horizontal flips, AdamW + warmup + cosine decay,
 fp16 autocast, EMA weights (used for samples and export). Resumable from runs/sketch/ckpt.pt.
 
-Output: runs/sketch/ckpt.pt (model, EMA, optimizer, step), runs/sketch/log.json
-        results/sketch/samples_{step}.png (64 EMA samples, DDIM 50 steps, dark ink on white)
-Usage:  python -m pipeline.sketch.train [--iters 60000] [--batch 256] [--resume]
+Output: runs/{run}/ckpt.pt (model, EMA, optimizer, step), runs/{run}/log.json
+        results/{run}/samples_{step}.png (64 EMA samples, DDIM 50 steps, dark ink on white)
+Usage:  python -m pipeline.sketch.train [--iters 60000] [--batch 256] [--resume]                    (v1, 32x32)
+        python -m pipeline.sketch.train --data cat64_s9 --run sketch64 --ch 32 48 96 128 --batch 128   (v2, 64x64)
 """
 import argparse
 import copy
@@ -21,18 +22,16 @@ from PIL import Image
 from ..sd.models import ROOT
 from .model import SketchUNet, alpha_sigma, ddim_sample
 
-DATA = ROOT / "data" / "sketch" / "cat32.npy"
-RUNS = ROOT / "runs" / "sketch"
-RESULTS = ROOT / "results" / "sketch"
-CKPT = RUNS / "ckpt.pt"
 DEVICE = "cuda"
 
 
-def save_grid(x, path, nrow=8, scale=3):
-    """x in [-1, 1], (N, 1, 32, 32) -> dark ink on white PNG."""
+def save_grid(x, path, nrow=8, scale=None):
+    """x in [-1, 1], (N, 1, S, S) -> dark ink on white PNG."""
     ink = ((x.clamp(-1, 1) + 1) / 2 * 255).round().byte().cpu().numpy()[:, 0]
+    S = ink.shape[-1]
+    scale = scale or max(1, 96 // S)
     n = len(ink) // nrow * nrow
-    grid = ink[:n].reshape(n // nrow, nrow, 32, 32).transpose(0, 2, 1, 3).reshape(n // nrow * 32, nrow * 32)
+    grid = ink[:n].reshape(n // nrow, nrow, S, S).transpose(0, 2, 1, 3).reshape(n // nrow * S, nrow * S)
     Image.fromarray(255 - grid).resize((grid.shape[1] * scale, grid.shape[0] * scale), Image.NEAREST).save(path)
 
 
@@ -46,15 +45,22 @@ def main():
     ap.add_argument("--sample-every", type=int, default=5000)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--data", default="cat32", help="data/sketch/<name>.npy")
+    ap.add_argument("--run", default="sketch", help="runs/<run>/ and results/<run>/")
+    ap.add_argument("--ch", type=int, nargs="+", default=[32, 64, 128], help="channels per level")
     args = ap.parse_args()
     torch.manual_seed(args.seed)
+    RUNS, RESULTS = ROOT / "runs" / args.run, ROOT / "results" / args.run
+    CKPT = RUNS / "ckpt.pt"
     RUNS.mkdir(parents=True, exist_ok=True)
     RESULTS.mkdir(parents=True, exist_ok=True)
 
-    data = torch.from_numpy(np.load(DATA)).to(DEVICE)  # uint8 (N, 32, 32), ~100 MB on GPU
+    data = torch.from_numpy(np.load(ROOT / "data" / "sketch" / f"{args.data}.npy")).to(DEVICE)  # uint8 (N, S, S)
+    size = data.shape[-1]
+    assert size % 2 ** (len(args.ch) - 1) == 0
     print(f"data {tuple(data.shape)}", flush=True)
 
-    model = SketchUNet().to(DEVICE)
+    model = SketchUNet(ch=tuple(args.ch), size=size).to(DEVICE)
     ema = copy.deepcopy(model).eval().requires_grad_(False)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
     scaler = torch.amp.GradScaler()
@@ -88,7 +94,7 @@ def main():
         flip = torch.rand(args.batch, device=DEVICE) < 0.5
         x0 = torch.where(flip[:, None, None, None], x0.flip(-1), x0)
         t = torch.rand(args.batch, device=DEVICE)
-        a, s = alpha_sigma(t)
+        a, s = alpha_sigma(t, size)
         eps = torch.randn_like(x0)
         xt = a[:, None, None, None] * x0 + s[:, None, None, None] * eps
         for g in opt.param_groups:
