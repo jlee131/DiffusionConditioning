@@ -13,11 +13,12 @@
   <script>
     // Design: the sky/peach/coral theme (theme-sky.css on top of main.css) is the default;
     // ?style=default shows the saved v1 design (main.css alone).
-    // Theme: ?theme=light|dark, else the last choice of the toggle, else the system setting.
+    // Theme: ?theme=light|dark, else the last choice of the toggle, else light (?theme=system follows the OS).
     if (new URLSearchParams(location.search).get('style') !== 'default') {
       document.documentElement.dataset.style = 'sky';
       let theme = new URLSearchParams(location.search).get('theme');
       try { theme = theme || localStorage.getItem('theme'); } catch (e) {}
+      theme = theme || 'light';
       if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
       document.write('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap">' +
                      '<link rel="stylesheet" href="css/theme-sky.css">');

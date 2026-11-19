@@ -26,7 +26,8 @@ data/, runs/       datasets, checkpoints, raw precompute output (gitignored)
 Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned versions: KaTeX 0.16.11 (equations), TensorFlow.js 4.22.0 + WASM backend (Section 3). All charts are custom Canvas 2D. Deployment through a GitHub Actions Pages workflow that publishes `site/`.
 
 **Design.** The default design follows `.documents/ui-style-preferences.SKILL.md`:
-- Sky/peach/coral palette in `theme-sky.css`, with a dark mode that follows the system setting. A ☾/☀ toggle (remembered) and `?theme=dark|light` override it.
+- Sky/peach/coral palette in `theme-sky.css`. Light mode is the default; a ☾/☀ toggle (remembered) and `?theme=dark|light` switch it, and `?theme=system` follows the OS setting. Selected segments use a light sky fill; the §3 loading bar is coral so it does not look like a slider.
+- Mobile: single-column grids use `minmax(0, 1fr)` so wide equations scroll inside their card instead of widening the page.
 - Font: Source Sans 3 (400/600).
 - Method colors: CFG sky, CG coral, TFG lavender.
 - Spacing: large hero spacing, and sections separated by a divider with 88 px above and below.

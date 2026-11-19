@@ -29,7 +29,7 @@
   --pencil: #2A7DAA;     /* pencil cats: deep sky */
   --base: #A3ACB9;
   --total: #23384F;
-  --seg-on: #3E9ED3;
+  --seg-on: #A9D8F0;     /* selected segment: light sky so the navy label stays readable */
   --seg-on-ink: #23384F;
   --m-none: #8A93A3;
   --m-cfg: #2A7DAA;      /* sky */
@@ -111,7 +111,7 @@ p { max-width: 830px; }
 .sk-go { border-color: var(--peach); color: var(--strong); font-size: 15px; }
 .sk-go:hover:not(:disabled) { background: var(--peach-light); }
 .sk-mode { border-color: var(--coral); }
-.sk-progress-bar i { background: var(--sky-deepened); }
+.sk-progress-bar i { background: var(--coral); }   /* coral, so it does not read as another slider */
 /* own crosshair (dark line + light halo, or the reverse in dark mode): the system crosshair is drawn inverted on
    Windows and can turn white on the light pad */
 #sk-pad { cursor: var(--pad-cursor); }
