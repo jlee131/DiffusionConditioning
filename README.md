@@ -4,6 +4,13 @@ An interactive, browser-only explainer of three ways to steer a diffusion model:
 
 **Live site:** https://jlee131.github.io/DiffusionConditioning/
 
+> **Turn on hardware acceleration.** Section 3 runs a diffusion model live in the browser on the GPU (WebGL). With acceleration on, a generation takes about 7 s; without it the page falls back to the CPU and switches to a light mode (one sample, fewer steps, about 16 s or more).
+> - Chrome / Edge: Settings → System → "Use graphics acceleration when available" → on, then restart the browser. Check `chrome://gpu` (or `edge://gpu`): "WebGL" should read "Hardware accelerated".
+> - Firefox: Settings → General → Performance → uncheck "Use recommended performance settings" → check "Use hardware acceleration when available".
+> - Safari: on by default.
+>
+> A desktop browser is recommended; Sections 1 and 2 also work on phones.
+
 All three methods are written as one update on the DDIM noise prediction,
 
 $$\tilde\varepsilon = \varepsilon_\text{base} - s\,\sigma_t\, g_t ,$$

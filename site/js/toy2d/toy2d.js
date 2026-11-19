@@ -17,9 +17,10 @@ heat.width = heat.height = HEAT;
 const hctx = heat.getContext('2d');
 
 const state = {
-  method: 'cg', scale: 1.5, tStart: 1, estimated: true, kappa: 0.5,
+  method: 'none', scale: 1.5, tStart: 1, estimated: true, kappa: 0.5,
   bg: 'density', arBase: true, arGuide: true, arTotal: false, particles: true, x0: false, x0kind: 'guided',
-  frame: 50, playing: false,   // start mid-way (t ~ 0.38), where contours and guidance are visible hover: null, pinned: -1, x0Path: false,
+  frame: 0, playing: false,   // start at pure noise (t = 1)
+  hover: null, pinned: -1, x0Path: false,
 };
 const model = { comps: DEFAULT_COMPONENTS, clsComps: null, condComps: null, estimated: false, target: [-0.2, 2.3] };
 const noise = gaussianPairs(N_PART, 7);

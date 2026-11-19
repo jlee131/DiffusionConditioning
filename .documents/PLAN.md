@@ -70,7 +70,7 @@ Frontend: plain HTML + ES modules, no build step. Libraries from CDN with pinned
 - Background is a two-way segment: density $p_t(x)$ or classifier $p_t(\text{pencil}\mid x)$.
 - The six layer checkboxes sit behind a "Display settings" fold, and the hover readout plus the CG=CFG badge sit behind a "Field values" fold.
 - With CG or CFG selected, the classifier contours $p_t(\text{pencil}\mid x)=0.25/0.5/0.75$ are drawn as soft coral bands (4/6/8 px, growing with the level), so the guidance arrows visibly cross them at right angles. With any guidance on, the base-score arrows fade to 30% opacity.
-- Defaults: method CG, Estimated model ($\kappa=0.5$), $s=1.5$, $\hat x_0$ rings off (the legend entry hides with them), and starting frame 50/80 ($t\approx0.38$), where contours and guidance are visible.
+- Defaults: method None, Estimated model ($\kappa=0.5$), $s=1.5$, $\hat x_0$ rings off (the legend entry hides with them), and starting frame 0 (pure noise, $t=1$).
 - The chart is titled "Pencil fraction vs. guidance scale" (TFG mode: "Distance to TFG target vs. guidance scale"). Its series and captions use the method colors. The chart sweep (about 0.5 s) runs in chunks that yield between scales, and a newer request cancels an older one, so the page never freezes.
 
 ## Section 2 — Stable Diffusion (offline precompute)
