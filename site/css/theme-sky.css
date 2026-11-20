@@ -41,6 +41,9 @@
   --on-accent: #23384F;  /* text on sky fills */
   --shadow: 0 1px 2px rgba(35, 56, 79, .04);
   --help-mobile: #8A93A3;
+  --seg-off-ink: #5D687B; /* unselected segment label: a step lighter than --ink */
+  --seg-track: #EEF1F5;   /* segmented-control track (Montage-style pill, sky palette) */
+  --toggle-bg: #F1F1F2; --toggle-hover: #E1E2E4; --toggle-ink: #2E2F33;   /* theme toggle: Montage grays */
   color-scheme: light;
 }
 
@@ -57,6 +60,7 @@
     --strong: #F1F5F9; --on-accent: #0E141B; --shadow: none; --help-mobile: #7F8C9C;
     --density: #DCE3EB;
     --pad-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M12 2v8M12 14v8M2 12h8M14 12h8' stroke='%230E141B' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M12 2v8M12 14v8M2 12h8M14 12h8' stroke='%23F1F5F9' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 12 12, crosshair;
+    --seg-off-ink: #B4BFCC; --seg-track: #0E141B; --toggle-bg: #2B2C2F; --toggle-hover: #37383C; --toggle-ink: #DBDCDF;
     color-scheme: dark;
   }
 }
@@ -71,14 +75,15 @@
   --strong: #F1F5F9; --on-accent: #0E141B; --shadow: none; --help-mobile: #7F8C9C;
     --density: #DCE3EB;
     --pad-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M12 2v8M12 14v8M2 12h8M14 12h8' stroke='%230E141B' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M12 2v8M12 14v8M2 12h8M14 12h8' stroke='%23F1F5F9' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 12 12, crosshair;
+    --seg-off-ink: #B4BFCC; --seg-track: #0E141B; --toggle-bg: #2B2C2F; --toggle-hover: #37383C; --toggle-ink: #DBDCDF;
   color-scheme: dark;
 }
 
-.theme-toggle {
-  float: right; margin-top: -4px; padding: 5px 12px; border-radius: 99px; cursor: pointer;
-  border: 1px solid var(--control-line); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600;
+.theme-toggle {   /* Montage style: borderless gray chip */
+  float: right; margin-top: -4px; padding: 6px 12px; border-radius: 10px; cursor: pointer; transition: background .15s;
+  border: 0; background: var(--toggle-bg); color: var(--toggle-ink); font: inherit; font-family: var(--ui-font); font-size: 13px; font-weight: 600;
 }
-.theme-toggle:hover { background: var(--sky-light); }
+.theme-toggle:hover { background: var(--toggle-hover); }
 
 body {
   font-family: "Source Sans 3", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -91,9 +96,16 @@ body {
   word-break: keep-all; overflow-wrap: anywhere; font-synthesis: weight;
 }
 
+/* UI text (buttons, selects, control labels) in Pretendard, as in Montage; prose stays Source Sans 3 */
+:root[data-style="sky"] { --ui-font: "Pretendard Variable", Pretendard, "Source Sans 3", system-ui, sans-serif; }
+:root[data-style="sky"] :is(button, select, .ctl label, .checks label, .sk-check, .sd-fold summary, .toy-panel summary,
+  .sk-progress, .sd-meter) { font-family: var(--ui-font); }
+
 /* ---- typographic hierarchy ---- */
-h1 { font-size: 52px; font-weight: 600; letter-spacing: -0.01em; color: var(--strong); margin: 88px 0 54px; }
-h2 { font-size: 34px; font-weight: 600; color: var(--strong); }
+/* headings: Pretendard at Montage's display1 / title1 sizes */
+h1, h2, h3, .chart-title { font-family: var(--ui-font); }
+h1 { font-size: 56px; line-height: 72px; font-weight: 700; letter-spacing: -0.0319em; color: var(--strong); margin: 88px 0 54px; }
+h2 { font-size: 32px; line-height: 44px; font-weight: 700; letter-spacing: -0.0253em; color: var(--strong); }
 section > h2 { margin-bottom: 32px; }
 .hero { padding: 64px 0 90px; }
 main > section.wrap { padding-top: 56px; }
@@ -101,14 +113,15 @@ main > section.wrap + section.wrap { margin-top: 88px; padding-top: 88px; border
 main > section > h2 { margin-top: 0; }
 .lede b { font-weight: 600; }
 .cap-body { font-size: 15px; color: var(--ink); }
-h3 { font-size: 18px; font-weight: 600; color: var(--strong); margin-bottom: 8px; }
+h3 { font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -0.002em; color: var(--strong); margin-bottom: 8px; }
 p { max-width: 830px; }
 .lede { font-size: 17px; font-weight: 400; color: var(--muted); }
 .chart-title { font-size: 17px; font-weight: 600; color: var(--strong); }
 .sd-main > label { font-size: 16px; color: var(--strong); }
 .sd-seeds button.on { border-color: var(--sky-deepened); }
 .sd-fold summary { font-size: 14px; }
-.sk-go { border-color: var(--peach); color: var(--strong); font-size: 15px; }
+.sk-go { border-color: var(--peach); color: var(--strong); font-size: 15px; font-weight: 700; }
+#sk-seed { border-radius: 10px; color: var(--strong); font-weight: 600; transition: background .15s; }   /* Montage button shape */
 .sk-go:hover:not(:disabled) { background: var(--peach-light); }
 .sk-mode { border-color: var(--coral); }
 .sk-progress-bar i { background: var(--coral); }   /* coral, so it does not read as another slider */
@@ -131,16 +144,28 @@ figcaption b { color: var(--ink); font-weight: 600; }
 }
 .ctl label { font-size: 14px; font-weight: 600; color: var(--ink); }
 .ctl label.sub, .checks label { font-weight: 400; color: var(--muted); }
-.seg { border-color: var(--control-line); }
-.seg button { font-size: 14px; font-weight: 600; color: var(--ink); }
-.seg button + button { border-left-color: var(--control-line); }
+/* segmented controls (Montage shape, sky colors): gray track, no dividers, selected item raised */
+.seg { border: 0; border-radius: 12px; padding: 4px; gap: 2px; background: var(--seg-track); overflow: visible; }
+.seg button { font-size: 14px; font-weight: 600; color: var(--seg-off-ink); border-radius: 8px; padding: 6px;
+  transition: background-color .2s, box-shadow .2s; }
+.seg button + button { border-left: 0; }
 .seg button:hover:not(.on) { background: var(--sky-light); }
-.seg button.on { background: var(--seg-on); color: var(--seg-on-ink); }
+.seg button.on { background: var(--seg-on); color: var(--seg-on-ink); box-shadow: 0 1px 2px -1px rgba(23, 23, 23, .10); }
+.sd-scale-seg button { padding: 8px 6px; }
 .btn { border: 1px solid var(--control-line); background: var(--card); color: var(--ink); font-weight: 600; }
 .btn:hover { background: var(--sky-light); }
 .ctl select { border-color: var(--control-line); }
 input[type=range] { accent-color: var(--sky-deepened); }
-input[type=checkbox] { accent-color: var(--sky-deepened); }
+/* checkbox drawn by hand so the tick is always white (native accent-color picks a dark tick on light sky) */
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; width: 16px; height: 16px; margin: 0 4px 0 0; flex: none;
+  border: 1.5px solid var(--control-line); border-radius: 4px; background: var(--card) center / 12px 12px no-repeat;
+  vertical-align: -3px; cursor: pointer; transition: background-color .15s, border-color .15s;
+}
+input[type=checkbox]:checked {
+  background-color: var(--sky-deepened); border-color: var(--sky-deepened);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.3 2.3 4.7-4.9' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
 :focus-visible { outline: 2px solid var(--sky-deep); outline-offset: 2px; }
 .hint { color: var(--sky-deep); font-size: 14px; }
 .readout { font-size: 13px; }
@@ -168,8 +193,8 @@ input[type=checkbox] { accent-color: var(--sky-deepened); }
 .sd-seeds button.on { border-color: var(--sky-deepened); }
 
 @media (max-width: 760px) {
-  h1 { font-size: 40px; margin: 48px 0 32px; }
-  h2 { font-size: 26px; }
+  h1 { font-size: 40px; line-height: 52px; letter-spacing: -0.0282em; margin: 48px 0 32px; }
+  h2 { font-size: 24px; line-height: 32px; letter-spacing: -0.023em; }
   section > h2 { margin-bottom: 20px; }
   .hero { padding: 40px 0 56px; }
   main > section.wrap { padding-top: 40px; }

@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steering Diffusion</title>
+  <meta name="description" content="Interactive explanation of classifier guidance, classifier-free guidance, and training-free guidance in diffusion models.">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+          onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]})"></script>
+  <link rel="stylesheet" href="css/main.css">
+  <script>
+    // Montage skin test page (ui-montage branch): same content as index.html, styled by
+    // theme-sky.css + theme-montage.css. Theme: ?theme=light|dark, else the toggle's last choice, else light.
+    document.documentElement.dataset.style = 'sky';
+    document.documentElement.dataset.skin = 'montage';
+    let theme = new URLSearchParams(location.search).get('theme');
+    try { theme = theme || localStorage.getItem('theme'); } catch (e) {}
+    theme = theme || 'light';
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="css/theme-sky.css">
+  <link rel="stylesheet" href="css/theme-montage.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <button id="theme-toggle" class="theme-toggle" type="button" hidden aria-label="Toggle dark mode"></button>
+    <p class="kicker">Mathematics of Diffusion Models · Final Project</p>
+    <h1>Steering Diffusion</h1>
+    <p class="lede">How <b class="m-cg">classifier guidance (CG)</b>, <b class="m-cfg">classifier-free guidance (CFG)</b>,
+      and <b class="m-tfg">training-free guidance (TFG)</b> bend the generation path. We start from a toy problem where every quantity is exact, then look at
+      Stable Diffusion, then you draw.</p>
+    <nav class="toc">
+      <a href="#toy">1 · Toy 2D</a>
+      <a href="#sd">2 · Stable Diffusion</a>
+      <a href="#draw">3 · Draw an Outline</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<!-- ===================================================================== -->
+<section id="toy" class="wrap">
+  <h2><span class="num">1</span> Guidance as a vector field</h2>
+  <p>The data is a mixture of six Gaussians: <span class="chip photo">photo cats</span>,
+    <span class="chip pencil">pencil cats</span>, and one ambiguous blob. Noising a Gaussian mixture gives another
+    Gaussian mixture, so every field below is <em>exact</em>. Hover a particle to trace it, or click to pin it and press play.</p>
+
+  <div class="toy-grid">
+    <div class="toy-stage">
+      <canvas id="toy-canvas" aria-label="Toy 2D diffusion visualization"></canvas>
+      <div class="timebar">
+        <button id="toy-play" class="btn" aria-label="Play">▶</button>
+        <input id="toy-time" type="range" min="0" max="80" value="0" step="1" aria-label="Sampling step">
+        <span id="toy-tlabel" class="mono">t = 1.00</span>
+      </div>
+      <div class="legend">
+        <span><i class="sw base"></i>base score $\nabla\log p_t(x)$</span>
+        <span><i class="sw guide"></i>guidance $s\,g_t$</span>
+        <span><i class="sw total"></i>total</span>
+        <span><i class="dot photo"></i>ends as photo</span>
+        <span><i class="dot pencil"></i>ends as pencil</span>
+        <span id="toy-leg-x0" style="display:none"><i class="ring"></i>clean prediction $\hat x_0$</span>
+      </div>
+    </div>
+
+    <aside class="toy-panel">
+      <div class="ctl">
+        <label>Method</label>
+        <div class="seg" id="toy-method">
+          <button data-v="none" class="on">None</button>
+          <button data-v="cg">CG</button>
+          <button data-v="cfg">CFG</button>
+          <button data-v="tfg">TFG</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <label for="toy-scale">Guidance scale <span class="mono" id="toy-scale-v">s = 1.50</span></label>
+        <input id="toy-scale" type="range" min="0" max="5" step="0.05" value="1.5">
+      </div>
+      <div class="ctl" id="toy-model-ctl">
+        <label>Model</label>
+        <div class="seg" id="toy-model">
+          <button data-v="oracle">Oracle</button>
+          <button data-v="estimated" class="on">Estimated</button>
+        </div>
+        <label for="toy-kappa" class="sub">estimation error <span class="mono" id="toy-kappa-v">κ = 0.50</span></label>
+        <input id="toy-kappa" type="range" min="0" max="1" step="0.01" value="0.5">
+      </div>
+      <p class="hint" id="toy-tfg-hint" hidden>Click to move the TFG target ✕. Shift+click a particle to pin it.</p>
+
+      <div class="ctl">
+        <label>Background</label>
+        <div class="seg" id="toy-bg">
+          <button data-v="density" class="on">density pₜ(x)</button>
+          <button data-v="classifier">pₜ(pencil | x)</button>
+        </div>
+      </div>
+      <details class="fold">
+        <summary>Display settings</summary>
+        <div class="ctl checks">
+          <label><input type="checkbox" id="toy-ar-base" checked> base score</label>
+          <label><input type="checkbox" id="toy-ar-guide" checked> guidance</label>
+          <label><input type="checkbox" id="toy-ar-total"> total</label>
+          <label><input type="checkbox" id="toy-particles" checked> particles</label>
+          <label><input type="checkbox" id="toy-x0"> $\hat x_0$</label>
+          <label><input type="checkbox" id="toy-x0path"> $\hat x_0$ path</label>
+        </div>
+      </details>
+
+      <details class="fold">
+        <summary>Field values</summary>
+        <div class="readout" id="toy-readout">
+          <div class="ro-title">Hover the canvas</div>
+        </div>
+        <div class="badge" id="toy-equal"></div>
+      </details>
+    </aside>
+  </div>
+
+  <div class="toy-below">
+    <figure class="chart-card">
+      <h4 class="chart-title" id="toy-chart-title">Pencil fraction vs. guidance scale</h4>
+      <canvas id="toy-chart" aria-label="Fraction of samples ending as pencil versus guidance scale"></canvas>
+      <figcaption id="toy-chart-cap" class="cap-body">Fraction of particles that end as pencil vs. guidance scale $s$.</figcaption>
+    </figure>
+    <div class="math-card">
+      <h3>What you are seeing</h3>
+      $$\nabla\log p_t(x\mid c)=\underbrace{\nabla\log p_t(x)}_{\text{base}}+\underbrace{\nabla\log p_t(c\mid x)}_{\text{guidance }g_t}$$
+      <p>Particles follow $\nabla\log p_t(x)+s\,g_t$, which targets $p(x)\,p(c\mid x)^s$.</p>
+      <p><b class="m-cg">CG</b> differentiates a classifier, $g_t=\nabla\log p_t(c\mid x)$. <b class="m-cfg">CFG</b>
+        subtracts two scores, $g_t=\nabla\log p_t(x\mid c)-\nabla\log p_t(x)$. With exact models they give the same
+        field.</p>
+      <p><b class="m-tfg">TFG</b> applies a loss to the clean prediction $\hat x_0=\mathbb E[x_0\mid x_t]$ and differentiates through it:
+        $$g_t=-\Big(\tfrac{\partial\hat x_0}{\partial x_t}\Big)^{\!\top}\nabla\ell(\hat x_0),\quad
+          \tfrac{\partial\hat x_0}{\partial x_t}=\tfrac{\alpha_t}{\sigma_t^2}\mathrm{Cov}[x_0\mid x_t].$$</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section id="sd" class="wrap">
+  <h2><span class="num">2</span> Stable Diffusion: CG vs CFG vs TFG</h2>
+  <p>Same idea, real model. Stable Diffusion 1.5 draws <em>a photo of a cat</em>; each method tries to push it toward
+    <em>a pencil drawing</em>. All columns start from the same noise. The large image is the clean prediction
+    $\hat x_0$ at the current step, so you see where the sample is heading long before it gets there.</p>
+
+  <div class="sd-controls">
+    <div class="ctl sd-main">
+      <label>Starting noise (seed)</label>
+      <div class="sd-seeds" id="sd-seeds"></div>
+    </div>
+    <div class="ctl sd-main">
+      <label>Guidance scale $s$</label>
+      <div class="seg sd-scale-seg" id="sd-scale">
+        <button data-v="0">0</button><button data-v="0.5">0.5</button>
+        <button data-v="1" class="on">1</button><button data-v="2">2</button>
+      </div>
+    </div>
+    <details class="fold sd-fold">
+      <summary>Advanced: guidance start</summary>
+      <div class="ctl">
+        <label>Guidance on from step</label>
+        <div class="seg" id="sd-start">
+          <button data-v="0" class="on">0</button><button data-v="10">10</button><button data-v="20">20</button>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="sd-cols" id="sd-cols"></div>
+
+  <div class="timebar sd-timebar">
+    <button id="sd-play" class="btn" aria-label="Play">▶</button>
+    <input id="sd-time" type="range" min="0" max="30" value="30" step="1" aria-label="Sampling step">
+    <span id="sd-tlabel" class="mono">final image</span>
+  </div>
+
+  <div class="sd-charts">
+    <figure class="chart-card">
+      <h4 class="chart-title">Guidance strength</h4>
+      <canvas id="sd-chart-mag" aria-label="Guidance magnitude per step"></canvas>
+      <figcaption>RMS of the guidance term $s\,d_t$ at each step, in noise units (the noise itself has RMS 1).</figcaption>
+    </figure>
+    <figure class="chart-card">
+      <h4 class="chart-title">Direction match with CFG</h4>
+      <canvas id="sd-chart-cos" aria-label="Cosine between guidance directions per step"></canvas>
+      <figcaption>Cosine between the CFG direction and the CG / TFG directions on the same unguided path. An exact
+        classifier would give CG = CFG (cos 1).</figcaption>
+    </figure>
+    <figure class="chart-card">
+      <h4 class="chart-title">Pencil score of $\hat x_0$</h4>
+      <canvas id="sd-chart-clip" aria-label="Pencil score of the clean prediction per step"></canvas>
+      <figcaption>CLIP probability of “pencil drawing” for the guided clean prediction at each step.</figcaption>
+    </figure>
+  </div>
+
+  <div class="toy-below sd-below">
+    <div class="math-card">
+      <h3>Three ways to get the pencil direction</h3>
+      <p>Every method adds a term to the base prediction: $\tilde\varepsilon=\varepsilon_\text{base}+s\,d_t$.</p>
+      <p><b class="m-cfg">CFG</b> asks the model twice and subtracts:
+        $d_t=w\,(\varepsilon_\text{pencil}-\varepsilon_\text{photo})$. No extra model, and $s=1$ is exactly the
+        pencil prompt.</p>
+      <p><b class="m-cg">CG</b> uses a separately trained noisy classifier:
+        $d_t=-w\,\sigma_t\nabla_{z}\log\frac{p_\phi(\text{pencil}\mid z_t)}{p_\phi(\text{photo}\mid z_t)}$.
+        With a perfect classifier this equals CFG. Ours is 99% accurate, but its gradient fades in late steps,
+        exactly where pencil texture forms.</p>
+      <p><b class="m-tfg">TFG</b> needs neither: it scores the clean prediction with a style loss against one
+        reference drawing and backpropagates through $\hat x_0$:
+        $d_t\propto\sigma_t\nabla_{z}\,\ell\big(\hat x_0(z_t)\big)$.</p>
+    </div>
+    <figure class="chart-card sd-ref">
+      <img id="sd-ref" alt="Reference pencil drawing used by the TFG style loss" width="256" height="256">
+      <figcaption>The single reference image the TFG style loss compares against (Gram matrices of VGG
+        features).</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="draw" class="wrap">
+  <h2><span class="num">3</span> Draw an outline</h2>
+  <div class="sk-intro">
+    <p>Now you are the guidance. A small diffusion model (3M parameters, 64×64 pixels) trained on 60k detailed
+      Quick, Draw! cats runs in your browser. Draw an outline (or pick one), and <b class="m-tfg">TFG</b> steers every
+      sample toward it through the clean prediction $\hat x_0$. No classifier, no retraining: just a loss and its
+      gradient.</p>
+    <figure class="sk-example">
+      <img src="assets/sketch64/example_cat.png" alt="Example: a cat generated by the model, following a hand-drawn head outline" width="143" height="143">
+      <figcaption>Made on this page.</figcaption>
+    </figure>
+  </div>
+
+  <div class="sk-grid">
+    <div class="sk-draw">
+      <canvas id="sk-pad" aria-label="Drawing pad for the outline"></canvas>
+      <div class="sk-tools">
+        <button class="btn sk-icon" id="sk-undo" type="button" title="Undo last stroke" aria-label="Undo last stroke">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 14 4 9l5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="btn sk-icon" id="sk-clear" type="button" title="Clear the pad" aria-label="Clear the pad">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <span class="sk-presets">Presets:
+          <button class="btn sk-btn" data-preset="head" type="button">Head</button>
+          <button class="btn sk-btn" data-preset="oval" type="button">Oval</button>
+          <button class="btn sk-btn" data-preset="ears" type="button">Ears</button>
+        </span>
+      </div>
+    </div>
+
+    <aside class="toy-panel sk-panel">
+      <div class="ctl">
+        <label for="sk-s">Guidance strength <span class="mono" id="sk-s-v"></span></label>
+        <input id="sk-s" type="range" min="0" max="1" step="0.05" value="0.25">
+      </div>
+      <div class="ctl">
+        <label for="sk-steps">Sampling steps <span class="mono" id="sk-steps-v"></span></label>
+        <input id="sk-steps" type="range" min="10" max="50" step="5" value="20">
+      </div>
+      <div class="ctl">
+        <label for="sk-frac">Guidance on for <span class="mono" id="sk-frac-v"></span> of steps</label>
+        <input id="sk-frac" type="range" min="0.2" max="1" step="0.1" value="0.6">
+      </div>
+      <div class="ctl sk-seedrow">
+        <label>Starting noise</label>
+        <button class="btn sk-btn" id="sk-seed" type="button">New noise</button>
+        <span class="mono" id="sk-seed-v">#1</span>
+      </div>
+      <div class="sk-progress" id="sk-progress" aria-live="polite">
+        <div class="sk-progress-bar"><i id="sk-progress-fill"></i></div>
+        <span id="sk-progress-label">Waiting to load the model…</span>
+      </div>
+      <button class="sk-go" id="sk-go" type="button" disabled>Generate</button>
+      <p class="sk-status" id="sk-status">The model loads when this section comes into view.</p>
+      <p class="sk-mode" id="sk-mode" hidden>No GPU acceleration detected, so this runs in light mode (fewer samples
+        and steps). Turning on hardware acceleration in your browser makes it about 10× faster.</p>
+    </aside>
+  </div>
+
+  <div class="sk-results" id="sk-results"></div>
+  <div class="timebar sd-timebar sk-timebar">
+    <input id="sk-time" type="range" min="0" max="19" value="0" step="1" aria-label="Sampling step">
+    <span id="sk-tlabel" class="mono">step – / –</span>
+    <label class="sk-check"><input type="checkbox" id="sk-show-outline" checked> outline</label>
+    <label class="sk-check" title="Colors each pixel by the gradient of the outline loss with respect to the clean prediction: coral where adding ink would lower the loss, blue where removing ink would. Shown on guided steps.">
+      <input type="checkbox" id="sk-show-grad" checked> show what the loss asks for:
+      <span class="sk-key add">more ink</span> <span class="sk-key rem">less ink</span></label>
+  </div>
+
+  <div class="toy-below">
+    <figure class="chart-card">
+      <h4 class="chart-title">Outline loss of $\hat x_0$</h4>
+      <canvas id="sk-loss" aria-label="Outline loss per sampling step"></canvas>
+      <figcaption class="cap-body">Mean outline loss $\ell(\hat x_0)$ over the samples, with and without guidance,
+        from the same starting noise.</figcaption>
+    </figure>
+    <div class="math-card">
+      <h3>How your outline steers the model</h3>
+      <p>Your strokes $M$ and the predicted ink $\mathrm{ink}(\hat x_0)$ are blurred by a small Gaussian $G$ and
+        compared:
+        $$\ell(\hat x_0)=\big\langle w,\;(G*\mathrm{ink}(\hat x_0)-G*M)^2\big\rangle,$$
+        where extra ink away from your outline costs only a fifth ($w=0.2$), so the model can still add eyes and
+        whiskers.</p>
+      <p><b class="m-tfg">TFG</b> differentiates this loss through $\hat x_0=(x_t-\sigma_t\varepsilon_\theta)/\alpha_t$
+        and the network itself, and nudges the noise prediction:
+        $\tilde\varepsilon=\varepsilon_\theta+s\,c\,\sigma_t\nabla_{x_t}\ell(\hat x_0)$.
+        Guidance only runs for the first part of sampling, where the shape is decided.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">Based on <em>The Principles of Diffusion Models</em> (v3), Chapter 8.</footer>
+
+<script>
+  // Light/dark toggle (sky style only). Canvas modules redraw on the 'themechange' event.
+  (function () {
+    const root = document.documentElement, btn = document.getElementById('theme-toggle');
+    if (root.dataset.style !== 'sky') return;
+    const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark'
+      : matchMedia('(prefers-color-scheme: dark)').matches;
+    const label = () => { btn.textContent = isDark() ? '☀ Light' : '☾ Dark'; };
+    btn.hidden = false; label();
+    btn.addEventListener('click', () => {
+      root.dataset.theme = isDark() ? 'light' : 'dark';
+      try { localStorage.setItem('theme', root.dataset.theme); } catch (e) {}
+      label(); window.dispatchEvent(new Event('themechange'));
+    });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', label);
+  })();
+  // canvases draw before the web font arrives; redraw once it has loaded
+  if (document.fonts) document.fonts.ready.then(() => window.dispatchEvent(new Event('themechange')));
+</script>
+<script type="module" src="js/toy2d/toy2d.js"></script>
+<script type="module" src="js/sd/sd.js"></script>
+<script type="module" src="js/sketch/sketch.js"></script>
+</body>
+</html>

@@ -106,13 +106,16 @@ Pastel tokens are too faint for small marks (dots, 2px chart lines), so data col
 | borders / control borders | `#E8EAEE` / `#D9DEE5` | `#233140` / `#2F4052` |
 | keywords, focus ring (deep sky) | `#2A7DAA` | `#8CCDEE` |
 | selected segment fill / its text | `#A9D8F0` / `#23384F` | `#75BDE0` / `#0E141B` |
+| unselected segment text (a step lighter than body) | `#5D687B` | `#B4BFCC` |
+| segment track | `#EEF1F5` | `#0E141B` |
+| theme toggle bg / hover / text (Montage grays) | `#F1F1F2` / `#E1E2E4` / `#2E2F33` | `#2B2C2F` / `#37383C` / `#DBDCDF` |
 | hover tint (light sky) | `#E3F2FA` | `#1A3042` |
 | badge bg / badge text (peach) | `#FDE8DC` / `#9A4A2A` | `#3A2A22` / `#F8BC9B` |
 | reference header bg / text (coral) | `#F89B9B` / `#6B2626` | `#3B2326` / `#FFC2C2`, coral `#F89B9B` border |
 | card shadow | `0 1px 2px rgba(35,56,79,.04)` | none |
 
 - In dark mode, solid pastel fills become a **dark tint of the hue plus a light text in that hue** (e.g. the coral reference header, peach badges). Only the selected segment keeps a bright fill (sky with dark text).
-- Mechanism: the light tokens live on `:root`; the dark tokens go under `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-theme="light"])`, and again under `:root[data-theme="dark"]`. A head script sets `data-theme` before first paint: `?theme=dark|light`, else the choice saved in `localStorage` (wrapped in try/catch), else `light`; `?theme=system` leaves it unset so the OS setting applies. A small pill toggle (`☾ Dark` / `☀ Light`) at the top right flips and saves it. Canvas drawings must redraw when the theme changes (listen for a custom `themechange` event as well as the media query) and after web fonts load.
+- Mechanism: the light tokens live on `:root`; the dark tokens go under `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-theme="light"])`, and again under `:root[data-theme="dark"]`. A head script sets `data-theme` before first paint: `?theme=dark|light`, else the choice saved in `localStorage` (wrapped in try/catch), else `light`; `?theme=system` leaves it unset so the OS setting applies. A small borderless gray chip toggle (`☾ Dark` / `☀ Light`, 10px radius, Pretendard 13/600, Montage-style) at the top right flips and saves it. Canvas drawings must redraw when the theme changes (listen for a custom `themechange` event as well as the media query) and after web fonts load.
 - Theme-dependent cursors: the system crosshair can turn white on a light canvas (Windows draws it inverted). Use a custom SVG crosshair token: a dark line with a light halo in light mode, the reverse in dark mode.
 - Never hard-code `#fff` or other light colors in component rules; use the role tokens so both modes follow.
 
@@ -137,14 +140,20 @@ Pastel tokens are too faint for small marks (dots, 2px chart lines), so data col
 Reference implementation: `site/` of the diffusion-guidance project (`theme-sky.css` on top of `main.css`).
 
 **Type and spacing**
-- Font: **Source Sans 3**, weights 400 and 600 only (Light 300 was tried and dropped). Canvas text uses the same font.
-- Explainer scale (desktop / mobile, px): h1 52 / 40 (600, margin 88 above, 54 below); section h2 34 / 26 (600) with a round numbered badge (pale sky circle, deep-sky number); lead 17 / 18 muted; body 16; captions 14 / 13 muted; chart titles 17 (600).
+- Fonts: two families with split roles (adopted from Wanted's Montage design system, github.com/wanteddev/montage-web, after a side-by-side test page):
+  - **Pretendard** (variable, jsDelivr `orioncactus/pretendard@v1.3.9`) for headings and all UI text: h1–h3, chart titles, buttons, selects, control labels, fold titles, the loading status. One token, `--ui-font`.
+  - **Source Sans 3** (400/600; Light 300 was tried and dropped) for prose: lead, body, captions, equation-card text. Canvas text follows the body font.
+  - Only the *font* of UI text was taken from Montage, not its sizes; control text keeps the explainer sizes (14px labels).
+- Heading scale (Montage display1 / title1; desktop / mobile, px): h1 56/72 → 40/52, weight 700, letter-spacing −0.0319em (−0.0282em on mobile), margin 88 above, 54 below; section h2 32/44 → 24/32, weight 700, letter-spacing −0.0253em (−0.023em), with a round numbered badge (pale sky circle, deep-sky number); h3 18/26 (600, −0.002em). Lead 17 / 18 muted; body 16; captions 14 / 13 muted; chart titles 17 (600).
 - Airy rhythm: generous hero padding, and sections separated by a thin divider line with 88px above and below (56px on mobile).
 - Text column max ~830px; cards and grids may be wider (max page 1180px).
 
 **Structure of each section**
 - Heading → one short lead paragraph → the interactive stage (canvas card, about 2/3 width) beside a control panel card (~320px) → charts and an equation card underneath.
 - Each chart has a short title above it (e.g. "Guidance strength") and a muted caption below.
+- Segmented controls (Montage shape, sky colors): a pale track (12px radius, 4px padding, no dividers between items), items with 8px radius, the selected item a raised pale-sky block with navy text and a hairline shadow (`0 1px 2px -1px rgba(23,23,23,.10)`); unselected labels a step lighter than body text. Used for every one-of-many choice (method, model, background, guidance scale, guidance start).
+- Buttons: secondary buttons (e.g. "New noise") get the Montage shape: 10px radius, control-line border, semi-bold text. The main action button ("Generate") keeps the peach outline and is bold (700).
+- Checkboxes are drawn in CSS (`appearance: none`, 16px, 4px radius, deepened-sky fill when checked) so the tick is always white; the native `accent-color` picks a dark tick on light sky.
 - Control panel: segmented buttons for discrete choices, labelled sliders showing the value in monospace (`s = 1.50`), and **folds** (`▸ Display settings`, `▸ Field values`, `▸ Advanced: …`) for anything a first-time reader does not need. Keep the default view minimal.
 - Legends show only what is currently drawn; turning a layer off hides its legend entry too.
 - Defaults start from the plain, unguided state (method None, time 0) so the reader turns things on step by step.

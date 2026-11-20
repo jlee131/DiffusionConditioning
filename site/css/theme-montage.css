@@ -1,0 +1,178 @@
+/* Montage skin (experiment, ui-montage branch).
+   Ports the look of Wanted's Montage design system (github.com/wanteddev/montage-web, MIT):
+   Pretendard, cool-neutral grays, #0066FF brand blue, iOS-style segmented controls, 10–16px radii.
+   Loaded by montage.html on top of main.css + theme-sky.css; index.html is untouched.
+   Canvas code parses the role tokens as hex, so every token here is opaque hex (Montage's alpha
+   tokens are pre-blended over the surface they sit on). */
+
+:root[data-style="sky"][data-skin="montage"] {
+  /* sky-theme names, remapped to Montage atomics */
+  --sky: #9EC5FF; --sky-deep: #0066FF; --sky-deepened: #0066FF; --sky-light: #F4F4F5;
+  --peach: #FFC06E; --peach-light: #FEF4E6; --peach-ink: #9C5800;
+  --coral: #FF8C8C; --coral-ink: #B00C0C; --coral-bg: #FEECEC;
+  --navy: #171719;
+
+  --bg: #F7F7F8;          /* background.neutral.secondary */
+  --card: #FFFFFF;        /* surface.elevated.primary */
+  --ink: #2E2F33;         /* foreground.neutral.secondary */
+  --strong: #171719;      /* foreground.neutral.primary */
+  --muted: #858688;       /* foreground.neutral.tertiary over white */
+  --line: #EAEBEC;        /* line.neutral.secondaryOpaque */
+  --control-line: #E1E2E4;/* line.neutral.primaryOpaque */
+  --track: #F1F1F2;       /* surface.neutral.secondary over white */
+  --hover: #F4F4F5;
+  --brand: #0066FF; --brand-strong: #005EEB; --brand-subtle: #EAF2FE;
+  --progress: #FF7B2E;    /* redOrange 60: loading fill, kept apart from the blue sliders */
+
+  --accent: #FF4242;      /* red 50: guidance arrows */
+  --photo: #D17600;       /* orange 39 */
+  --pencil: #0098B2;      /* cyan 40 */
+  --base: #AEB0B6;
+  --total: #171719;
+  --seg-on: #FFFFFF; --seg-on-ink: #171719;
+  --m-none: #989BA2;
+  --m-cfg: #0066FF;       /* brand blue */
+  --m-cg: #FF4242;        /* red 50 */
+  --m-tfg: #6541F2;       /* violet 50 */
+  --density: #69A5FF;     /* blue 70 */
+  --on-accent: #FFFFFF;
+  --shadow: 0 1px 2px -1px rgba(23, 23, 23, .10);
+  --shadow-thumb: 0 1px 2px -1px rgba(23, 23, 23, .10), 0 0 0 .5px rgba(23, 23, 23, .04);
+  --focus-ring: rgba(0, 102, 255, .12);
+  --help-mobile: #858688;
+  --disable-bg: #F4F4F5; --disable-ink: #C2C4C8;
+  color-scheme: light;
+}
+
+/* ---- dark: Montage dark semantic set ---- */
+@media (prefers-color-scheme: dark) {
+  :root[data-style="sky"][data-skin="montage"]:not([data-theme="light"]) {
+    --sky: #69A5FF; --sky-deep: #3385FF; --sky-deepened: #3385FF; --sky-light: #2E2F33;
+    --peach: #FFC06E; --peach-light: #33291C; --peach-ink: #FFC06E;
+    --coral: #FF8C8C; --coral-ink: #FFB5B5; --coral-bg: #362426;
+    --bg: #0F0F10; --card: #1B1C1E; --ink: #DBDCDF; --strong: #F7F7F8; --muted: #8A8C92;
+    --line: #2E2F33; --control-line: #37383C; --track: #2B2C2F; --hover: #292A2D;
+    --brand: #3385FF; --brand-strong: #1A75FF; --brand-subtle: #1E2B40; --progress: #FF9B61;
+    --accent: #FF6363; --photo: #FFA938; --pencil: #28D0ED; --base: #5A5C63; --total: #F7F7F8;
+    --seg-on: #46474C; --seg-on-ink: #F7F7F8;
+    --m-none: #70737C; --m-cfg: #3385FF; --m-cg: #FF6363; --m-tfg: #9E86FC;
+    --density: #C9DEFE; --on-accent: #FFFFFF; --shadow: none; --shadow-thumb: none;
+    --focus-ring: rgba(51, 133, 255, .24); --help-mobile: #8A8C92;
+    --disable-bg: #2E2F33; --disable-ink: #5A5C63;
+    color-scheme: dark;
+  }
+}
+:root[data-style="sky"][data-skin="montage"][data-theme="dark"] {
+  --sky: #69A5FF; --sky-deep: #3385FF; --sky-deepened: #3385FF; --sky-light: #2E2F33;
+  --peach: #FFC06E; --peach-light: #33291C; --peach-ink: #FFC06E;
+  --coral: #FF8C8C; --coral-ink: #FFB5B5; --coral-bg: #362426;
+  --bg: #0F0F10; --card: #1B1C1E; --ink: #DBDCDF; --strong: #F7F7F8; --muted: #8A8C92;
+  --line: #2E2F33; --control-line: #37383C; --track: #2B2C2F; --hover: #292A2D;
+  --brand: #3385FF; --brand-strong: #1A75FF; --brand-subtle: #1E2B40; --progress: #FF9B61;
+  --accent: #FF6363; --photo: #FFA938; --pencil: #28D0ED; --base: #5A5C63; --total: #F7F7F8;
+  --seg-on: #46474C; --seg-on-ink: #F7F7F8;
+  --m-none: #70737C; --m-cfg: #3385FF; --m-cg: #FF6363; --m-tfg: #9E86FC;
+  --density: #C9DEFE; --on-accent: #FFFFFF; --shadow: none; --shadow-thumb: none;
+  --focus-ring: rgba(51, 133, 255, .24); --help-mobile: #8A8C92;
+  --disable-bg: #2E2F33; --disable-ink: #5A5C63;
+  color-scheme: dark;
+}
+
+/* ---- type: Pretendard + Montage scale (display1 / title1 / headline / body1 / label) ---- */
+[data-skin="montage"] body {
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI",
+    Roboto, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  font-size: 16px; line-height: 1.5; letter-spacing: .0057em;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
+[data-skin="montage"] h1 { font-size: 56px; line-height: 72px; font-weight: 700; letter-spacing: -.0319em; }
+[data-skin="montage"] h2 { font-size: 32px; line-height: 44px; font-weight: 700; letter-spacing: -.0253em; }
+[data-skin="montage"] h3 { font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -.002em; }
+[data-skin="montage"] .lede { font-size: 17px; line-height: 1.6; color: var(--ink); opacity: .88; }
+[data-skin="montage"] .kicker { font-size: 14px; font-weight: 600; letter-spacing: .0145em; color: var(--brand); }
+[data-skin="montage"] .chart-title { font-size: 17px; font-weight: 600; letter-spacing: 0; }
+[data-skin="montage"] figcaption { font-size: 13px; line-height: 18px; letter-spacing: .0194em; }
+[data-skin="montage"] .math-card p { font-size: 15px; line-height: 24px; letter-spacing: .0096em; }
+[data-skin="montage"] .math-card p > b { font-weight: 700; }
+[data-skin="montage"] .num { border-radius: 10px; background: var(--brand-subtle); color: var(--brand); font-weight: 700; }
+
+/* ---- table of contents: chip row ---- */
+[data-skin="montage"] .toc a {
+  border: 0; padding: 7px 14px; border-radius: 10px; background: var(--track); color: var(--ink);
+  font-size: 14px; font-weight: 600; text-decoration: none; transition: background .15s;
+}
+[data-skin="montage"] .toc a:hover { background: var(--control-line); }
+
+/* ---- surfaces: soft cards, 16px radius ---- */
+[data-skin="montage"] .toy-stage, [data-skin="montage"] .toy-panel, [data-skin="montage"] .chart-card,
+[data-skin="montage"] .math-card, [data-skin="montage"] .sd-controls, [data-skin="montage"] .sd-col,
+[data-skin="montage"] .sd-timebar, [data-skin="montage"] .sk-draw, [data-skin="montage"] .sk-card {
+  border-radius: 16px; border-color: var(--line); box-shadow: var(--shadow);
+}
+[data-skin="montage"] #toy-canvas, [data-skin="montage"] #sk-pad { border-radius: 12px; }
+[data-skin="montage"] .sd-big, [data-skin="montage"] .sk-big, [data-skin="montage"] .sd-ref img { border-radius: 10px; }
+
+/* ---- segmented control: gray track, raised thumb ---- */
+[data-skin="montage"] .seg {
+  border: 0; border-radius: 12px; padding: 4px; gap: 2px; background: var(--track); overflow: visible;
+}
+[data-skin="montage"] .seg button {
+  border-radius: 8px; padding: 6px 6px; color: var(--muted); font-size: 14px; font-weight: 600;
+  transition: color .2s, background-color .2s, box-shadow .2s;
+}
+[data-skin="montage"] .seg button + button { border-left: 0; }
+[data-skin="montage"] .seg button:hover:not(.on) { background: transparent; color: var(--ink); }
+[data-skin="montage"] .seg button.on { background: var(--seg-on); color: var(--seg-on-ink); box-shadow: var(--shadow-thumb); }
+
+/* ---- buttons ---- */
+[data-skin="montage"] .btn {
+  border: 1px solid var(--control-line); border-radius: 10px; background: var(--card); color: var(--strong);
+  font-weight: 600; transition: background .15s;
+}
+[data-skin="montage"] .btn:hover { background: var(--hover); }
+[data-skin="montage"] .btn.sk-btn { font-size: 14px; }
+[data-skin="montage"] .sk-go {                     /* primary solid button */
+  border: 0; border-radius: 12px; min-height: 48px; background: var(--brand); color: #fff;
+  font-size: 16px; font-weight: 600; letter-spacing: .0057em; transition: background .15s;
+}
+[data-skin="montage"] .sk-go:hover:not(:disabled) { background: var(--brand-strong); }
+[data-skin="montage"] .sk-go:disabled { background: var(--disable-bg); color: var(--disable-ink); }
+[data-skin="montage"] .theme-toggle {
+  border: 0; border-radius: 10px; background: var(--track); color: var(--ink); padding: 6px 12px; font-size: 13px;
+}
+[data-skin="montage"] .theme-toggle:hover { background: var(--control-line); }
+
+/* ---- form controls ---- */
+[data-skin="montage"] .ctl label { font-size: 14px; font-weight: 600; letter-spacing: .0145em; color: var(--strong); }
+[data-skin="montage"] .ctl label.sub, [data-skin="montage"] .checks label { font-weight: 500; color: var(--muted); }
+[data-skin="montage"] .ctl select {
+  border: 1px solid var(--control-line); border-radius: 10px; padding: 8px 10px; background: var(--card); color: var(--strong);
+}
+[data-skin="montage"] input[type=range], [data-skin="montage"] input[type=checkbox] { accent-color: var(--brand); }
+[data-skin="montage"] :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; box-shadow: 0 0 0 5px var(--focus-ring); }
+
+/* ---- feedback ---- */
+[data-skin="montage"] .hint { color: var(--brand); }
+[data-skin="montage"] .badge {
+  border: 0; border-radius: 12px; background: var(--brand-subtle); color: var(--strong); padding: 10px 12px;
+}
+[data-skin="montage"] .sk-mode { border: 0; border-radius: 12px; background: var(--coral-bg); color: var(--strong); }
+[data-skin="montage"] .sk-progress-bar { height: 6px; border-radius: 99px; background: var(--track); }
+[data-skin="montage"] .sk-progress-bar i { background: var(--progress); border-radius: inherit; }
+[data-skin="montage"] .sd-meter .bar { border-radius: 99px; background: var(--track); }
+[data-skin="montage"] .chip { border-radius: 6px; font-weight: 600; }
+[data-skin="montage"] .sd-seeds button { border-radius: 12px; }
+[data-skin="montage"] .sd-seeds button.on { border-color: var(--brand); }
+[data-skin="montage"] .sk-example img, [data-skin="montage"] .sk-small { border-radius: 10px; }
+
+/* ---- SD columns: reference card tinted red, candidates with brand letter badges ---- */
+[data-skin="montage"] .sd-col h3 { font-weight: 600; }
+[data-skin="montage"] .sd-col:not([data-method="none"]) h3 span::before {
+  border-radius: 8px; background: var(--brand-subtle); color: var(--brand); font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  [data-skin="montage"] h1 { font-size: 40px; line-height: 52px; letter-spacing: -.0282em; }
+  [data-skin="montage"] h2 { font-size: 24px; line-height: 32px; letter-spacing: -.023em; }
+  [data-skin="montage"] .lede { font-size: 16px; }
+}
